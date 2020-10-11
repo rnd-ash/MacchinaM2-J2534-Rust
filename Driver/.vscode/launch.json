@@ -1,0 +1,19 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Launch with DAS",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "C:\\Program Files (x86)\\Mercedes-Benz\\DAS\\bin\\das32r2_slt.exe",
+            "args": ["-len"],
+            "stopAtEntry": false,
+            "cwd": "C:\\Program Files (x86)\\Mercedes-Benz\\DAS\\bin\\",
+            "environment": [],
+            "externalConsole": true
+        }
+    ]
+}
