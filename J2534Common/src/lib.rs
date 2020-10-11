@@ -1,12 +1,17 @@
 #[macro_use]
 extern crate bitflags;
+extern crate num_enum;
+
+use num_enum::TryFromPrimitive;
+use std::convert::TryFrom;
 
 // SAE J2534 API definition,
 // Based on J2534.h
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq, TryFromPrimitive)]
+#[repr(u8)]
 #[allow(non_camel_case_types, dead_code)]
-enum Protocol {
+pub enum Protocol {
     J1850VPW = 0x01,
     J1850PWM = 0x02,
     ISO9141 = 0x03,
@@ -16,16 +21,21 @@ enum Protocol {
     SCI_A_ENGINE = 0x07,
     SCI_A_TRANS = 0x08,
     SCI_B_ENGINE = 0x09,
-    SCI_B_TRANS = 0x0A
+    SCI_B_TRANS = 0x0A,
 }
 
+impl Protocol {
+    pub fn fromByte(protocol_id: u8) -> Option<Protocol> {
+        Protocol::try_from(protocol_id).ok()
+    }
+}
 
 #[derive(Debug)]
 #[allow(non_camel_case_types, dead_code)]
-enum IoctlID {         //   Input           Output
-    GET_CONFIG = 0x01, // SCONFIG_LIST      NULL
-    SET_CONFIG = 0x02, // SCONFIG_LIST      NULL
-    READ_VBATT = 0x03, // NULL              u64
+pub enum IoctlID {
+    GET_CONFIG = 0x01,
+    SET_CONFIG = 0x02,
+    READ_VBATT = 0x03,
     FIVE_BAUD_INIT = 0x05,
     FAST_INIT = 0x06,
     CLEAR_TX_BUFFER = 0x07,
@@ -35,12 +45,12 @@ enum IoctlID {         //   Input           Output
     CLEAR_FUNCT_MSG_LOOKUP_TABLE = 0x0B,
     ADD_TO_FUNCT_MSG_LOOKUP_TABLE = 0x0C,
     DELETE_FROM_FUNCT_MSG_LOOKUP_TABLE = 0x0D,
-    READ_PROG_VOLTAGE = 0x0E
+    READ_PROG_VOLTAGE = 0x0E,
 }
 
 #[derive(Debug)]
 #[allow(non_camel_case_types, dead_code)]
-enum IoctlParam {
+pub enum IoctlParam {
     DATA_RATE = 0x01,
     LOOPBACK = 0x03,
 
@@ -79,12 +89,12 @@ enum IoctlParam {
     BS_TX = 0x22,
     STMIN_TX = 0x23,
     T3_MAX = 0x24,
-    ISO15765_WFT_MAX = 0x25
+    ISO15765_WFT_MAX = 0x25,
 }
 
 #[derive(Debug)]
 #[allow(non_camel_case_types, dead_code)]
-enum PassthruError {
+pub enum PassthruError {
     STATUS_NOERROR = 0x00,
     ERR_NOT_SUPPORTED = 0x01,
     ERR_INVALID_CHANNEL_ID = 0x02,
@@ -113,56 +123,55 @@ enum PassthruError {
     ERR_NO_FLOW_CONTROL = 0x17,
     ERR_NOT_UNIQUE = 0x18,
     ERR_INVALID_BAUDRATE = 0x19,
-    ERR_INVALID_DEVICE_ID = 0x1A
+    ERR_INVALID_DEVICE_ID = 0x1A,
 }
 
 #[derive(Debug)]
 #[allow(non_camel_case_types, dead_code)]
-enum FilterType {
+pub enum FilterType {
     PASS_FILTER = 0x01,
     BLOCK_FILTER = 0x02,
-    FLOW_CONTROL_FILTER = 0x03
+    FLOW_CONTROL_FILTER = 0x03,
 }
 
 #[derive(Debug)]
 #[allow(non_camel_case_types, dead_code)]
-enum LoopBackSetting {
+pub enum LoopBackSetting {
     OFF = 0x00,
-    ON = 0x01
+    ON = 0x01,
 }
 
 #[derive(Debug)]
 #[allow(non_camel_case_types, dead_code)]
-enum DataBits {
+pub enum DataBits {
     DATA_BITS_8 = 0x00,
-    DATA_BITS_7 = 0x01
+    DATA_BITS_7 = 0x01,
 }
 
 #[derive(Debug)]
 #[allow(non_camel_case_types, dead_code)]
-enum ParitySetting {
+pub enum ParitySetting {
     NO_PARITY = 0x00,
     ODD_PARITY = 0x01,
-    EVEN_PARITY = 0x02
+    EVEN_PARITY = 0x02,
 }
 
 #[derive(Debug)]
 #[allow(non_camel_case_types, dead_code)]
-enum J1850PWMNetworkLine {
+pub enum J1850PWMNetworkLine {
     BUS_NORMAL = 0x00,
     BUS_PLUS = 0x01,
-    BUS_MINUS = 0x02
+    BUS_MINUS = 0x02,
 }
 
 #[derive(Debug)]
 #[allow(non_camel_case_types, dead_code)]
-enum ConnectFlags {
+pub enum ConnectFlags {
     CAN_29BIT_ID = 0x00000100,
     ISO9141_NO_CHECKSUM = 0x00000200,
     CAN_ID_BOTH = 0x00000800,
-    ISO9141_K_LINE_ONLY = 0x00001000
+    ISO9141_K_LINE_ONLY = 0x00001000,
 }
-
 
 bitflags! {
     pub struct RxFlag: u64 {
@@ -192,8 +201,6 @@ bitflags! {
     }
 }
 
-
-
 #[derive(Copy, Clone)]
 #[repr(C, packed(1))]
 pub struct PASSTHRU_MSG {
@@ -203,26 +210,34 @@ pub struct PASSTHRU_MSG {
     pub timestamp: u64,
     pub data_size: u64,
     pub extra_data_size: u64,
-    pub data: [u8; 4128]
+    pub data: [u8; 4128],
 }
 
 #[derive(Copy, Clone)]
 #[repr(C, packed(1))]
 pub struct SBYTE_ARRAY {
     pub num_of_bytes: u64,
-    pub byte_ptr: *const u8
+    pub byte_ptr: *const u8,
 }
 
 #[derive(Copy, Clone)]
 #[repr(C, packed(1))]
 pub struct SConfig {
     pub parameter: u64,
-    pub value: u64
+    pub value: u64,
 }
 
 #[derive(Copy, Clone)]
 #[repr(C, packed(1))]
 pub struct SConfigList {
     pub num_of_params: u64,
-    pub config_ptr: *const SConfig
+    pub config_ptr: *const SConfig,
+}
+
+#[test]
+fn testProtocol() {
+    if let Some(pcall) = Protocol::fromByte(0x06) {
+        assert!(pcall == Protocol::ISO15765)
+    }
+    assert!(Protocol::fromByte(0xFF).is_none())
 }
