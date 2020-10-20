@@ -13,3 +13,4 @@ crate-type = ["cdylib"]
 [dependencies]
 libc="0.2.0"
 J2534Common = { path = "../J2534Common" }
+winapi="0.3.9"

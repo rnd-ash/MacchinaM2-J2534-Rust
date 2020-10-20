@@ -3,63 +3,93 @@ use libc::{c_char, c_long};
 use std::ffi::CString;
 use J2534Common::*;
 mod logger;
+use logger::LOGGER;
 
 const API_VERSION: &str = "04.04";
 const DLL_VERSION: &str = "0.1";
 const FW_VERSION: &str = "0.1";
 
+// Dll Load function (Windows only)
+#[no_mangle]
+#[cfg(windows)]
+#[allow(non_snake_case)]
+pub extern "system" fn DllMain(module: u32, reason: u32, reserved: *mut std::ffi::c_void) {
+    match reason {
+        0x01 => { // Dll_PROCESS_ATTACH
+            // Setup logger and one time things
+            LOGGER.info(format!("Dll_PROCESS_ATTACH Called"));
+        }
+        0x00 => { // DLL_PROCESS_DETACH
+            // Destroy logger and one time things
+            LOGGER.info(format!("DLL_PROCESS_DETACH Called"));
+        }
+        0x02 => { // DLL_THREAD_ATTACH
+            LOGGER.info(format!("DLL_THREAD_ATTACH Called"));
+        }
+        0x03 => { // DLL_THREAD_DETACH
+            LOGGER.info(format!("DLL_THREAD_DETACH Called"));
+        }
+        _ => {
+            LOGGER.info(format!("WTF Invalid DLL Entry {}", reason));
+        }
+
+    }
+}
+
 #[no_mangle]
 #[allow(non_snake_case)]
-pub extern "system" fn PassThruOpen(pName: *mut libc::c_void, pDeviceID: *mut i32) -> i32 {
+pub extern "system" fn PassThruOpen(pName: *mut libc::c_void, pDeviceID: *mut u32) -> i32 {
     PassthruError::STATUS_NOERROR as i32
 }
 
 #[no_mangle]
 #[allow(non_snake_case)]
-pub extern "system" fn PassThruClose(pDeviceID: i32) -> i32 {
+pub extern "system" fn PassThruClose(pDeviceID: u32) -> i32 {
     PassthruError::STATUS_NOERROR as i32
 }
 
 #[no_mangle]
 #[allow(non_snake_case)]
 pub extern "system" fn PassThruConnect(
-    DeviceID: i32,
-    ProtocolID: i32,
-    Flags: i32,
-    BaudRate: i32,
-    pChannelID: *mut i32,
+    DeviceID: u32,
+    ProtocolID: u32,
+    Flags: u32,
+    BaudRate: u32,
+    pChannelID: *mut u32,
 ) -> i32 {
+    let prot = Protocol::fromByte(ProtocolID);
+    LOGGER.info(format!("PASSTHRU_CONNECT. Protocol: {:?}, Baudrate: {}", prot, BaudRate));
     PassthruError::STATUS_NOERROR as i32
 }
 
 #[no_mangle]
 #[allow(non_snake_case)]
-pub extern "system" fn PassThruDisconnect(ChannelID: i32) -> i32 {
+pub extern "system" fn PassThruDisconnect(ChannelID: u32) -> i32 {
     PassthruError::STATUS_NOERROR as i32
 }
 
 #[no_mangle]
 #[allow(non_snake_case)]
 pub extern "system" fn PassThruReadVersion(
-    DeviceID: i32,
+    DeviceID: u32,
     pFirmwareVersion: *mut c_char,
     pDllVersion: *mut c_char,
     pApiVersion: *mut c_char,
 ) -> i32 {
     match CString::new(FW_VERSION) {
-        Err(e) => return PassthruError::ERR_FAILED as i32,
+        Err(_) => return PassthruError::ERR_FAILED as i32,
         Ok(s) => unsafe {
             std::ptr::copy_nonoverlapping(s.as_c_str().as_ptr(), pFirmwareVersion, FW_VERSION.len())
         },
     }
     match CString::new(DLL_VERSION) {
-        Err(e) => return PassthruError::ERR_FAILED as i32,
+        Err(_) => return PassthruError::ERR_FAILED as i32,
         Ok(s) => unsafe {
             std::ptr::copy_nonoverlapping(s.as_c_str().as_ptr(), pDllVersion, DLL_VERSION.len())
         },
     }
     match CString::new(API_VERSION) {
-        Err(e) => return PassthruError::ERR_FAILED as i32,
+        Err(_) => return PassthruError::ERR_FAILED as i32,
         Ok(s) => unsafe {
             std::ptr::copy_nonoverlapping(s.as_c_str().as_ptr(), pApiVersion, API_VERSION.len())
         },
@@ -76,10 +106,10 @@ pub extern "system" fn PassThruGetLastError(pErrorDescription: *mut c_char) -> i
 #[no_mangle]
 #[allow(non_snake_case)]
 pub extern "system" fn PassThruReadMsgs(
-    ChannelID: i32,
+    ChannelID: u32,
     pMsg: *mut PASSTHRU_MSG,
-    pNumMsgs: *mut i32,
-    Timeout: i32,
+    pNumMsgs: *mut u32,
+    Timeout: u32,
 ) -> i32 {
     PassthruError::STATUS_NOERROR as i32
 }
@@ -87,55 +117,64 @@ pub extern "system" fn PassThruReadMsgs(
 #[no_mangle]
 #[allow(non_snake_case)]
 pub extern "system" fn PassThruStartMsgFilter(
-    ChannelID: i32,
-    FilterType: i32,
+    ChannelID: u32,
+    FilterType: u32,
     pMaskMsg: *const PASSTHRU_MSG,
     pPatternMsg: *const PASSTHRU_MSG,
     pFlowControlMsg: *const PASSTHRU_MSG,
-    pMsgID: *mut i32,
+    pMsgID: *mut u32,
 ) -> i32 {
     PassthruError::STATUS_NOERROR as i32
 }
 
 #[no_mangle]
 #[allow(non_snake_case)]
-pub extern "system" fn PassThruStopMsgFilter(ChannelID: i32, MsgID: i32) -> i32 {
+pub extern "system" fn PassThruStopMsgFilter(ChannelID: u32, MsgID: u32) -> i32 {
     PassthruError::STATUS_NOERROR as i32
 }
 
 #[no_mangle]
 #[allow(non_snake_case)]
 pub extern "system" fn PassThruWriteMsgs(
-    ChannelID: i32,
+    ChannelID: u32,
     pMsg: *const PASSTHRU_MSG,
-    pNumMsgs: *const i32,
-    Timeout: i32,
+    pNumMsgs: *const u32,
+    Timeout: u32,
 ) -> i32 {
+    if let Some(ptr) = unsafe { pMsg.as_ref() } {
+        let prot = match Protocol::fromByte(ptr.protocol_id) {
+            Some(p) => p,
+            None => return PassthruError::ERR_INVALID_PROTOCOL_ID as i32
+        };
+        let size = ptr.data_size;
+        let data = &ptr.data[0..size as usize];
+        LOGGER.info(format!("WRITE_MSGS. Protocol: {:?}, Data size: {} {:x?}. Timeout {} ms", prot, size, data, Timeout));  
+    }
     PassthruError::STATUS_NOERROR as i32
 }
 
 #[no_mangle]
 #[allow(non_snake_case)]
 pub extern "system" fn PassThruStartPeriodicMsg(
-    ChannelID: i32,
+    ChannelID: u32,
     pMsg: *const PASSTHRU_MSG,
-    pMsgID: *const i32,
-    TimeInterval: i32,
+    pMsgID: *const u32,
+    TimeInterval: u32,
 ) -> i32 {
     PassthruError::STATUS_NOERROR as i32
 }
 
 #[no_mangle]
 #[allow(non_snake_case)]
-pub extern "system" fn PassThruStopPeriodicMsg(ChannelID: i32, MsgID: i32) -> i32 {
+pub extern "system" fn PassThruStopPeriodicMsg(ChannelID: u32, MsgID: u32) -> i32 {
     PassthruError::STATUS_NOERROR as i32
 }
 
 #[no_mangle]
 #[allow(non_snake_case)]
 pub extern "system" fn PassThruIoctl(
-    HandleID: i32,
-    IoctlID: i32,
+    HandleID: u32,
+    IoctlID: u32,
     pInput: *mut libc::c_void,
     pOutput: *mut libc::c_void,
 ) -> i32 {
@@ -145,9 +184,9 @@ pub extern "system" fn PassThruIoctl(
 #[no_mangle]
 #[allow(non_snake_case)]
 pub extern "system" fn PassThruSetProgrammingVoltage(
-    DeviceID: i32,
-    PinNumber: i32,
-    Voltage: i32,
+    DeviceID: u32,
+    PinNumber: u32,
+    Voltage: u32,
 ) -> i32 {
     PassthruError::STATUS_NOERROR as i32
 }

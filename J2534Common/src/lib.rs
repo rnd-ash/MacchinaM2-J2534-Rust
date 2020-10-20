@@ -9,7 +9,7 @@ use std::convert::TryFrom;
 // Based on J2534.h
 
 #[derive(Debug, Eq, PartialEq, TryFromPrimitive)]
-#[repr(u8)]
+#[repr(u32)]
 #[allow(non_camel_case_types, dead_code)]
 pub enum Protocol {
     J1850VPW = 0x01,
@@ -25,7 +25,7 @@ pub enum Protocol {
 }
 
 impl Protocol {
-    pub fn fromByte(protocol_id: u8) -> Option<Protocol> {
+    pub fn fromByte(protocol_id: u32) -> Option<Protocol> {
         Protocol::try_from(protocol_id).ok()
     }
 }
@@ -174,7 +174,7 @@ pub enum ConnectFlags {
 }
 
 bitflags! {
-    pub struct RxFlag: u64 {
+    pub struct RxFlag: u32 {
         const CAN_29BIT_ID = 0x00000100;
         const ISO15765_ADDR_TYPE = 0x00000080;
         const ISO15765_PADDING_ERROR = 0x00000010;
@@ -187,7 +187,7 @@ bitflags! {
 }
 
 bitflags! {
-    pub struct TxFlag: u64 {
+    pub struct TxFlag: u32 {
         const SCI_TX_VOLTAGE = 0x00800000;
         const SCI_MODE = 0x00400000;
         const BLOCKING = 0x00010000;
@@ -204,33 +204,33 @@ bitflags! {
 #[derive(Copy, Clone)]
 #[repr(C, packed(1))]
 pub struct PASSTHRU_MSG {
-    pub protocol_id: u64,
-    pub rx_status: u64,
-    pub tx_flags: u64,
-    pub timestamp: u64,
-    pub data_size: u64,
-    pub extra_data_size: u64,
+    pub protocol_id: u32,
+    pub rx_status: u32,
+    pub tx_flags: u32,
+    pub timestamp: u32,
+    pub data_size: u32,
+    pub extra_data_size: u32,
     pub data: [u8; 4128],
 }
 
 #[derive(Copy, Clone)]
 #[repr(C, packed(1))]
 pub struct SBYTE_ARRAY {
-    pub num_of_bytes: u64,
+    pub num_of_bytes: u32,
     pub byte_ptr: *const u8,
 }
 
 #[derive(Copy, Clone)]
 #[repr(C, packed(1))]
 pub struct SConfig {
-    pub parameter: u64,
-    pub value: u64,
+    pub parameter: u32,
+    pub value: u32,
 }
 
 #[derive(Copy, Clone)]
 #[repr(C, packed(1))]
 pub struct SConfigList {
-    pub num_of_params: u64,
+    pub num_of_params: u32,
     pub config_ptr: *const SConfig,
 }
 
