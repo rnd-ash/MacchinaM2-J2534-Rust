@@ -1,4 +1,3 @@
-use libc;
 use libc::{c_char, c_long};
 use std::ffi::CString;
 use J2534Common::*;
@@ -13,32 +12,36 @@ const FW_VERSION: &str = "0.1";
 #[no_mangle]
 #[cfg(windows)]
 #[allow(non_snake_case)]
-pub extern "system" fn DllMain(module: u32, reason: u32, reserved: *mut std::ffi::c_void) {
+pub extern "system" fn DllMain(module: u32, reason: u32, reserved: *mut std::ffi::c_void) -> bool {
     match reason {
         0x01 => { // Dll_PROCESS_ATTACH
             // Setup logger and one time things
             LOGGER.info(format!("Dll_PROCESS_ATTACH Called"));
+            true
         }
         0x00 => { // DLL_PROCESS_DETACH
             // Destroy logger and one time things
             LOGGER.info(format!("DLL_PROCESS_DETACH Called"));
+            true
         }
         0x02 => { // DLL_THREAD_ATTACH
             LOGGER.info(format!("DLL_THREAD_ATTACH Called"));
+            true
         }
         0x03 => { // DLL_THREAD_DETACH
             LOGGER.info(format!("DLL_THREAD_DETACH Called"));
+            true
         }
         _ => {
             LOGGER.info(format!("WTF Invalid DLL Entry {}", reason));
+            false
         }
-
     }
 }
 
 #[no_mangle]
 #[allow(non_snake_case)]
-pub extern "system" fn PassThruOpen(pName: *mut libc::c_void, pDeviceID: *mut u32) -> i32 {
+pub extern "system" fn PassThruOpen(name: *mut libc::c_void, device_id: *mut u32) -> i32 {
     PassthruError::STATUS_NOERROR as i32
 }
 
@@ -71,27 +74,27 @@ pub extern "system" fn PassThruDisconnect(ChannelID: u32) -> i32 {
 #[no_mangle]
 #[allow(non_snake_case)]
 pub extern "system" fn PassThruReadVersion(
-    DeviceID: u32,
-    pFirmwareVersion: *mut c_char,
-    pDllVersion: *mut c_char,
-    pApiVersion: *mut c_char,
+    device_id: u32,
+    fw_version_ptr: *mut c_char,
+    dll_version_ptr: *mut c_char,
+    api_version_ptr: *mut c_char,
 ) -> i32 {
     match CString::new(FW_VERSION) {
         Err(_) => return PassthruError::ERR_FAILED as i32,
         Ok(s) => unsafe {
-            std::ptr::copy_nonoverlapping(s.as_c_str().as_ptr(), pFirmwareVersion, FW_VERSION.len())
+            std::ptr::copy_nonoverlapping(s.as_c_str().as_ptr(), fw_version_ptr, FW_VERSION.len())
         },
     }
     match CString::new(DLL_VERSION) {
         Err(_) => return PassthruError::ERR_FAILED as i32,
         Ok(s) => unsafe {
-            std::ptr::copy_nonoverlapping(s.as_c_str().as_ptr(), pDllVersion, DLL_VERSION.len())
+            std::ptr::copy_nonoverlapping(s.as_c_str().as_ptr(), dll_version_ptr, DLL_VERSION.len())
         },
     }
     match CString::new(API_VERSION) {
         Err(_) => return PassthruError::ERR_FAILED as i32,
         Ok(s) => unsafe {
-            std::ptr::copy_nonoverlapping(s.as_c_str().as_ptr(), pApiVersion, API_VERSION.len())
+            std::ptr::copy_nonoverlapping(s.as_c_str().as_ptr(), api_version_ptr, API_VERSION.len())
         },
     }
     PassthruError::STATUS_NOERROR as i32

@@ -1,5 +1,5 @@
 [package]
-name = "macchina_driver"
+name = "m2_driver"
 version = "0.1.0"
 authors = ["Ashcon Mohseninia <ashconm@outlook.com>"]
 edition = "2018"
@@ -7,10 +7,8 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
-name = "macchina_driver"
 crate-type = ["cdylib"]
 
 [dependencies]
-libc="0.2.0"
-J2534Common = { path = "../J2534Common" }
-winapi="0.3.9"
+libc = "0.2.80"
+J2534Common = {path="../J2534Common"}

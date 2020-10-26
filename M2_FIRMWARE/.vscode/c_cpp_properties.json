@@ -1,0 +1,23 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "cStandard": "c11",
+            "cppStandard": "c++14",
+            "intelliSenseMode": "gcc-x64",
+            "includePath": [
+                "${workspaceRoot}/**",
+                "/home/ashcon/.arduino15/packages/arduino/hardware/**",
+                "/home/ashcon/.arduino15/packages/macchina/hardware/sam/0.3.13/**",
+                "/home/ashcon/.arduino15/packages/macchina/hardware/sam/0.3.13/variants/m2/*",
+            ],
+            "forcedInclude": [],
+            "defines": [
+                "USBCON",
+                "ARDUINO_AVR_UNO",
+                "ARDUINO_ARCH_AVR"
+            ]
+        }
+    ],
+    "version": 4
+}

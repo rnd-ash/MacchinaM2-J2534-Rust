@@ -7,14 +7,12 @@ use std::sync::{Arc, Mutex};
 
 #[cfg(windows)]
 const LOG_PATH: &str = "C:\\Program Files (x86)\\macchina\\passthru\\driver_log.txt";
-#[cfg(target_family = "unix")]
+#[cfg(unix)]
 const LOG_PATH: &str = "/usr/share/macchina/passthru/driver_log.txt";
 
 pub struct Logger{}
 pub static LOGGER : Logger = Logger{};
 
-
-#[cfg(target_family = "windows")]
 impl Logger {
     pub fn info(&self, msg: String) {
         if let Err(e) = self.write_to_file(format!("[INFO] - {}", msg)) {
@@ -23,7 +21,7 @@ impl Logger {
     }
 
     fn write_to_file(&self, txt: String) -> std::io::Result<()> {
-        if Path::exists(Path::new(LOG_PATH)) {
+        if !Path::exists(Path::new(LOG_PATH)) {
             File::create(LOG_PATH)?;
         }
         // Lock the mutex

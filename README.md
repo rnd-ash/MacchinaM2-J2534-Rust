@@ -16,3 +16,7 @@ J2534 common library for [OpenVehicleDiag](https://github.com/rnd-ash/OpenVehicl
 
 ## M2UTD
 This contains code that gets uploaded to the M2 UTD Module
+
+## M2_LOOKBACK
+**DO NOT USE** This is test code written for a secondary M2 UTD to emulate a bare bones ECU to verify protocols function as they should, by acting as a lookback for data sent
+via a M2 UTD

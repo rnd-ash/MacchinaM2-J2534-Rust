@@ -1,0 +1,6 @@
+{
+    "board": "macchina:sam:m2",
+    "port": "/dev/ttyACM0",
+    "sketch": "M2_FIRMWARE.ino",
+    "programmer": "AVR ISP"
+}
