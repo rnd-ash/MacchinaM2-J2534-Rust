@@ -22,12 +22,15 @@ This contains code that gets uploaded to the M2 Module
 
 ### Windows
 1. Create the directory `C:\Program Files (x86)\macchina\passthru\`
-2. Go to driver directory, and open a command prompt
-3. run build.bat
+2. Open the driver folder
+3. In macchina.reg file, replace the COM-PORT attribute value with whatever COM Port the M2 Unit shows up as
+4. run build.bat
 
 ### Linux and OSX
 1. Create the directory `/usr/share/passthru/`
-2. Run build.sh
+2. Open the driver folder
+3. In macchina.json file, replace the COM-PORT attribute value with whatever COM Port the M2 Unit shows up as
+4. Run build.sh
 
 ## M2 Firmware
 **Arduino IDE Must be installed**

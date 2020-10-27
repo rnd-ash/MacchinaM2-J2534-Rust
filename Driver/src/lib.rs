@@ -3,6 +3,7 @@ use std::ffi::CString;
 use J2534Common::*;
 mod logger;
 use logger::LOGGER;
+mod comm;
 
 const API_VERSION: &str = "04.04";
 const DLL_VERSION: &str = "0.1";
@@ -14,21 +15,25 @@ const FW_VERSION: &str = "0.1";
 #[allow(non_snake_case)]
 pub extern "system" fn DllMain(module: u32, reason: u32, reserved: *mut std::ffi::c_void) -> bool {
     match reason {
-        0x01 => { // Dll_PROCESS_ATTACH
+        0x01 => {
+            // Dll_PROCESS_ATTACH
             // Setup logger and one time things
             LOGGER.info(format!("Dll_PROCESS_ATTACH Called"));
             true
         }
-        0x00 => { // DLL_PROCESS_DETACH
+        0x00 => {
+            // DLL_PROCESS_DETACH
             // Destroy logger and one time things
             LOGGER.info(format!("DLL_PROCESS_DETACH Called"));
             true
         }
-        0x02 => { // DLL_THREAD_ATTACH
+        0x02 => {
+            // DLL_THREAD_ATTACH
             LOGGER.info(format!("DLL_THREAD_ATTACH Called"));
             true
         }
-        0x03 => { // DLL_THREAD_DETACH
+        0x03 => {
+            // DLL_THREAD_DETACH
             LOGGER.info(format!("DLL_THREAD_DETACH Called"));
             true
         }
@@ -61,7 +66,10 @@ pub extern "system" fn PassThruConnect(
     pChannelID: *mut u32,
 ) -> i32 {
     let prot = Protocol::fromByte(ProtocolID);
-    LOGGER.info(format!("PASSTHRU_CONNECT. Protocol: {:?}, Baudrate: {}", prot, BaudRate));
+    LOGGER.info(format!(
+        "PASSTHRU_CONNECT. Protocol: {:?}, Baudrate: {}",
+        prot, BaudRate
+    ));
     PassthruError::STATUS_NOERROR as i32
 }
 
@@ -147,11 +155,14 @@ pub extern "system" fn PassThruWriteMsgs(
     if let Some(ptr) = unsafe { pMsg.as_ref() } {
         let prot = match Protocol::fromByte(ptr.protocol_id) {
             Some(p) => p,
-            None => return PassthruError::ERR_INVALID_PROTOCOL_ID as i32
+            None => return PassthruError::ERR_INVALID_PROTOCOL_ID as i32,
         };
         let size = ptr.data_size;
         let data = &ptr.data[0..size as usize];
-        LOGGER.info(format!("WRITE_MSGS. Protocol: {:?}, Data size: {} {:x?}. Timeout {} ms", prot, size, data, Timeout));  
+        LOGGER.info(format!(
+            "WRITE_MSGS. Protocol: {:?}, Data size: {} {:x?}. Timeout {} ms",
+            prot, size, data, Timeout
+        ));
     }
     PassthruError::STATUS_NOERROR as i32
 }

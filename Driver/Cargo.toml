@@ -11,4 +11,11 @@ crate-type = ["cdylib"]
 
 [dependencies]
 libc = "0.2.80"
+serialport="3.3.0"
 J2534Common = {path="../J2534Common"}
+
+[dev-dependencies]
+rand = "0.7.3"
+
+[target.'cfg(windows)'.dependencies]
+winreg="0.7.0"

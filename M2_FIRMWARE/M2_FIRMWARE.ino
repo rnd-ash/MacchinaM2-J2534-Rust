@@ -7,26 +7,20 @@ CAN_FRAME input;
 M2_12VIO M2IO;
 
 void setup() {
-  SerialUSB.begin(115200);
-  while(!SerialUSB){}
-  pinMode(DS2, OUTPUT); // Alive (RED) LED
-  pinMode(DS3, OUTPUT); // Can Looped (Yellow)
-  pinMode(DS4, OUTPUT);
-  digitalWrite(DS2, LOW); // On
-  digitalWrite(DS3, HIGH); // Off
-  digitalWrite(DS4, HIGH);
-  Can0.enable(); // Use a 500kbps bus speed
-  //Can0.init(500_000);
-  Can0.beginAutoSpeed();
-  int filter;
-  //extended
-  for (filter = 0; filter < 3; filter++) {
-    Can0.setRXFilter(filter, 0, 0, true);
-  }  
-  //standard
-  for (int filter = 3; filter < 7; filter++) {
-    Can0.setRXFilter(filter, 0, 0, false);
-  } 
+  SerialUSB.begin(500000); // 500 kbps 
+  pinMode(DS6, OUTPUT); // Green
+  pinMode(DS5, OUTPUT); // Yellow
+  pinMode(DS4, OUTPUT); // Yellow
+  pinMode(DS3, OUTPUT); // Yellow
+  pinMode(DS2, OUTPUT); // Red
+  pinMode(DS7_GREEN, OUTPUT); // RGB (Green)
+  pinMode(DS7_BLUE, OUTPUT);  // RGB (Blue)
+  pinMode(DS7_RED, OUTPUT);   // RGB (Red)
+  digitalWrite(DS2, LOW); // At startup assume no PC
+  digitalWrite(DS6, HIGH);
+  digitalWrite(DS7_GREEN, HIGH);
+  digitalWrite(DS7_BLUE, HIGH);
+  digitalWrite(DS7_RED, HIGH);
   M2IO.Init_12VIO();
 }
 
@@ -43,23 +37,19 @@ float getVoltage() {
 #endif
   return voltage;
 }
+COMM_MSG msg = {0x00};
 
-unsigned long lastVTime = 0;
-bool lon = false;
+
 void loop() {
-    digitalWrite(DS3, HIGH); // Off
-    if (Can0.available() > 0) {
-        Can0.read(input);
-        digitalWrite(DS3, LOW); // On
-        delay(10);
+  if (PCCOMM::read_message(&msg)) {
+    switch (msg.msg_type)
+    {
+    case 0xFF:
+      PCCOMM::send_message(&msg); // Test Message type - Should just loop back response
+      break;
+    default:
+      break;
     }
-    if (millis() - lastVTime > 1000) {
-        if(lon) {
-            digitalWrite(DS4, LOW);
-        } else {
-            digitalWrite(DS4, HIGH);
-        }
-        lastVTime = millis();
-        lon = !lon;
-    }
+  }
 }
+ 

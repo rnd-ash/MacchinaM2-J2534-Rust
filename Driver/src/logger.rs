@@ -1,8 +1,8 @@
 use std::fmt::Formatter;
 use std::fs::File;
 use std::io;
-use std::path::Path;
 use std::io::prelude::*;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 #[cfg(windows)]
@@ -10,8 +10,8 @@ const LOG_PATH: &str = "C:\\Program Files (x86)\\macchina\\passthru\\driver_log.
 #[cfg(unix)]
 const LOG_PATH: &str = "/usr/share/macchina/passthru/driver_log.txt";
 
-pub struct Logger{}
-pub static LOGGER : Logger = Logger{};
+pub struct Logger {}
+pub static LOGGER: Logger = Logger {};
 
 impl Logger {
     pub fn info(&self, msg: String) {
@@ -26,7 +26,14 @@ impl Logger {
         }
         // Lock the mutex
         //let mut data = self.logMutex.lock().unwrap();
-        write!(std::fs::OpenOptions::new().write(true).append(true).open(LOG_PATH)?, "{}", txt)
+        write!(
+            std::fs::OpenOptions::new()
+                .write(true)
+                .append(true)
+                .open(LOG_PATH)?,
+            "{}",
+            txt
+        )
         // Mutex gets unlocked at end of scope
     }
 }
