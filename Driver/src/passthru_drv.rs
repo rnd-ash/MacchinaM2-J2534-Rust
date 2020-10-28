@@ -1,7 +1,7 @@
 use libc::{c_char, c_long};
 use std::ffi::CString;
 use J2534Common::*;
-use crate::logger::*;
+use crate::logger;
 use crate::comm::*;
 
 /// J2534 API Version supported - In this case 04.04
@@ -15,27 +15,14 @@ const FW_VERSION: &str = "0.1";
 /// Our device ID that will be returned back to the application (0x1234)
 const DEVICE_ID: u32 = 0x1234;
 
-/*
-fn safe_m2_op(f: fn(&mut MacchinaM2)) -> bool {
-    unsafe {
-        if M2.is_none() {
-            return false
-        } else {
-            M2.unwrap();
-            true
-        }
-    }
-}
-*/
-
 fn copy_str_unsafe(dst: *mut c_char, src: &str) -> bool {
     if dst.is_null() {
-        LOGGER.info(format!("Error copying '{}' - Source ptr is null", src));
+        logger::info(format!("Error copying '{}' - Source ptr is null", src));
         return false
     }
     match CString::new(src) {
         Err(_) => {
-            LOGGER.info(format!("Error copying '{}' - CString creation failed", src));
+            logger::info(format!("Error copying '{}' - CString creation failed", src));
             false
         }
         Ok(x) => {
@@ -67,7 +54,7 @@ pub fn passthru_read_version(
 
 
 pub fn passthru_open(device_id: *mut u32) -> PassthruError {
-    LOGGER.info("PassthruOpen called".to_string());
+    logger::info("PassthruOpen called".to_string());
     if M2.read().unwrap().is_some() {
         return PassthruError::ERR_DEVICE_IN_USE;
     } else {
@@ -86,7 +73,7 @@ pub fn passthru_open(device_id: *mut u32) -> PassthruError {
 }
 
 pub fn passthru_close(pDeviceID: u32) -> PassthruError {
-    LOGGER.info(format!("PassthruClose called. Device ID: {}", pDeviceID));
+    logger::info(format!("PassthruClose called. Device ID: {}", pDeviceID));
     // Device ID which isn't our device ID
     if pDeviceID != DEVICE_ID {
         return PassthruError::ERR_INVALID_DEVICE_ID

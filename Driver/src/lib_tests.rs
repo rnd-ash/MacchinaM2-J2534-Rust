@@ -12,7 +12,7 @@ mod tests {
         assert!(passthru_drv::passthru_open(&mut dev) as i32 == PassthruError::STATUS_NOERROR as i32);
         assert!(dev == 0x1234);
         std::thread::sleep(std::time::Duration::from_millis(500)); 
-        let send = COMM_MSG::new_with_args(0xFF, &[0x00]);
+        let send = COMM_MSG::new_with_args(MsgType::TestMessage, &[0x00]);
         match M2.write().as_deref_mut() {
             Ok(d) => {
                 if let Some(dev) =d {
@@ -26,5 +26,18 @@ mod tests {
         };
         std::thread::sleep(std::time::Duration::from_millis(500));
         assert!(passthru_drv::passthru_close(dev) as i32 == PassthruError::STATUS_NOERROR as i32);
+    }
+
+    #[test]
+    fn test_batt() {
+        let mut dev: u32 = 0;
+        assert!(passthru_drv::passthru_open(&mut dev) as i32 == PassthruError::STATUS_NOERROR as i32);
+        for _ in 0..10 {
+            if let Some(vbatt) = get_batt_voltage() {
+                println!("M2 Read voltage: {}V", vbatt);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        passthru_drv::passthru_close(dev);
     }
 }

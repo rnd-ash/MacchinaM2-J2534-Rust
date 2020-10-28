@@ -1,7 +1,6 @@
 use libc::{c_char, c_long};
 use J2534Common::*;
 mod logger;
-use logger::LOGGER;
 mod comm;
 use comm::{MacchinaM2};
 mod passthru_drv;
@@ -40,7 +39,7 @@ pub extern "system" fn PassThruConnect(
     pChannelID: *mut u32,
 ) -> i32 {
     let prot = Protocol::fromByte(ProtocolID);
-    LOGGER.info(format!(
+    logger::info(format!(
         "PASSTHRU_CONNECT. Protocol: {:?}, Baudrate: {}",
         prot, BaudRate
     ));
@@ -115,7 +114,7 @@ pub extern "system" fn PassThruWriteMsgs(
         };
         let size = ptr.data_size;
         let data = &ptr.data[0..size as usize];
-        LOGGER.info(format!(
+        logger::info(format!(
             "WRITE_MSGS. Protocol: {:?}, Data size: {} {:x?}. Timeout {} ms",
             prot, size, data, Timeout
         ));

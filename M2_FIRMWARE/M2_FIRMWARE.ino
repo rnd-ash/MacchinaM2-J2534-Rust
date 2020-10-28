@@ -41,13 +41,25 @@ float getVoltage() {
 COMM_MSG msg = {0x00};
 CAN_FRAME f;
 
+void send_v_batt(COMM_MSG *msg) {
+  msg->arg_size = sizeof(float);
+  msg->msg_type = MSG_READ_BATT;
+  float v_batt = getVoltage();
+  memcpy(&msg->args[0], &v_batt, sizeof(float));
+  PCCOMM::send_message(msg);
+}
+
+
 void loop() {
   if (PCCOMM::read_message(&msg)) {
     switch (msg.msg_type)
     {
 #ifdef FW_TEST
-    case 0xFF:
+    case MSG_TEST:
       PCCOMM::send_message(&msg); // Test Message type - Should just loop back response
+      break;
+    case MSG_READ_BATT:
+      send_v_batt(&msg);
       break;
 #endif
     default:
