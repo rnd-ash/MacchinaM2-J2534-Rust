@@ -2,16 +2,63 @@ use serialport::*;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::thread::{spawn, JoinHandle};
+use std::sync::RwLock;
+use lazy_static::lazy_static;
+use crate::logger;
 
-struct MacchinaM2 {
-    p: Box<dyn SerialPort>,
+#[cfg(unix)]
+use serde_json;
+
+#[cfg(windows)]
+use winreg::{RegKey, RegValue};
+
+lazy_static! {
+    pub static ref M2: RwLock<Option<MacchinaM2>> = RwLock::new(None);
+}
+
+pub struct MacchinaM2 {
+    p: Mutex<Box<dyn SerialPort>>,
     rx_queue: Arc<Mutex<VecDeque<COMM_MSG>>>,
     handler: JoinHandle<()>,
     is_running: Arc<Mutex<bool>>,
 }
 
+unsafe impl Send for MacchinaM2{}
+unsafe impl Sync for MacchinaM2{}
+
+#[cfg(unix)]
+fn get_comm_port() -> Option<String> {
+    if let Ok(content) = std::fs::read_to_string("/usr/share/passthru/macchina.json") {
+        return match serde_json::from_str::<serde_json::Value>(content.as_str()) {
+            Ok(v) => v["COM-PORT"].as_str().map(String::from),
+            Err(_) => None
+        }
+    }
+    None
+}
+
+#[cfg(windows)]
+fn get_comm_port() -> Option<String> {
+    if let Ok(reg) = RegKey::predef(HKEY_LOCAL_MACHINE).open_subkey("SOFTWARE\\WOW6432Node\\PassThruSupport.04.04\\Macchina-Passthru") {
+        return match reg.get_value("COM-PORT") {
+            Ok(s) => Some(s),
+            Err(_) => None
+        }
+    }
+    None
+}
+
 impl MacchinaM2 {
-    fn open_connection(port: &str) -> Result<Self> {
+
+    pub fn open_connection() -> Result<Self> {
+        match get_comm_port() {
+            Some(s) => MacchinaM2::open_conn(s.as_str()),
+            None => Err(serialport::Error::new(ErrorKind::NoDevice, "Cannot find COM-PORT attribute"))
+        }
+    }
+
+
+    fn open_conn(port: &str) -> Result<Self> {
         // Connection settings for Macchina M2 (Basically arduino SAM Board)
         let settings = SerialPortSettings {
             baud_rate: 500_000,
@@ -43,49 +90,47 @@ impl MacchinaM2 {
         // Since UNIX has a 4KB Page size, I want to store more data,
         // Use a 8KB Buffer
         let handler = spawn(move || {
+            logger::LOGGER.info("M2 receiver thread starting!".to_string());
             loop {
                 if port_t.bytes_to_read().unwrap() >= COMM_MSG_SIZE as u32 {
                     let mut buf: Vec<u8> = vec![0; COMM_MSG_SIZE];
                     port_t.read_exact(buf.as_mut_slice()).unwrap();
                     // Aquire lock before writing to the vec queue
                     let msg = COMM_MSG::from_vec(&buf);
-                    if msg.msg_type != 0x01 {
-                        queue_t.lock().unwrap().push_back(msg);
-                    } else {
-                        println!(
-                            "M2 LOG -> {}",
-                            String::from_utf8(Vec::from(msg.args)).unwrap()
-                        );
+                    match msg.msg_type {
+                        0x01 => logger::LOGGER.log_m2(String::from_utf8(Vec::from(msg.args)).unwrap()),
+                        _ => queue_t.lock().unwrap().push_back(msg)
                     }
                 }
 
                 if *is_running_t.lock().unwrap() == false {
+                    logger::LOGGER.info("M2 receiver thread exiting".to_string());
                     break;
                 }
             }
         });
 
         Ok(MacchinaM2 {
-            p: orig_port,
+            p: Mutex::new(orig_port),
             rx_queue,
             handler,
             is_running,
         })
     }
 
-    fn write_comm_struct(&mut self, s: COMM_MSG) -> std::io::Result<()> {
+    pub fn write_comm_struct(&mut self, s: COMM_MSG) -> std::io::Result<()> {
         let buffer = s.to_slice();
-        self.p.write_all(&buffer)
+        self.p.lock().unwrap().write_all(&buffer)
     }
 
-    fn read_comm_struct(&mut self) -> Option<COMM_MSG> {
+    pub fn read_comm_struct(&self) -> Option<COMM_MSG> {
         match self.rx_queue.lock() {
             Ok(mut r) => r.pop_front(),
             Err(_) => None,
         }
     }
 
-    fn write_and_read(&mut self, s: COMM_MSG, timeout_ms: u128) -> Option<COMM_MSG> {
+    pub fn write_and_read(&mut self, s: COMM_MSG, timeout_ms: u128) -> Option<COMM_MSG> {
         if self.write_comm_struct(s).is_err() {
             return None;
         }
@@ -98,7 +143,7 @@ impl MacchinaM2 {
         return None;
     }
 
-    fn stop(&mut self) {
+    pub fn stop(&mut self) {
         *self.is_running.lock().unwrap() = false;
     }
 }
@@ -115,7 +160,7 @@ const COMM_MSG_ARG_SIZE: usize = COMM_MSG_SIZE - 3;
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]
 /// Comm message that is sent and received fro the M2 module
-struct COMM_MSG {
+pub struct COMM_MSG {
     msg_type: u8,                  // Message type
     arg_size: u16,                 // Arg size
     args: [u8; COMM_MSG_ARG_SIZE], // Args
@@ -195,43 +240,48 @@ fn test_fmt() {
     println!("{}", msg2);
 }
 
-#[cfg(windows)]
-const TEST_PORT: &str = "COM12";
-
-#[cfg(unix)]
-const TEST_PORT: &str = "/dev/ttyACM0";
 
 #[cfg(test)]
-use rand::Rng;
+mod comm_test {
+    use rand::Rng;
+    use super::*;
 
-#[test]
-fn test_io_m2() {
-    let mut tx_errors = 0;
-    let mut rec_fail = 0;
-    let mut macchina = MacchinaM2::open_connection(TEST_PORT)
-        .expect(format!("Could not open COM port {}!", TEST_PORT).as_str());
+    #[cfg(windows)]
+    const TEST_PORT: &str = "COM12";
 
-    // For this test, once we open the comm port,
-    // Fire 100 random COMM messages at the M2 module
-    // (Use type 0xFF to tell Macchina to echo back the same message)
-    // Assert that each received message is the same as what was sent
-    for _ in 0..100 {
-        let args: Vec<u8> = (0..100)
-            .map(|_| rand::thread_rng().gen_range(0, 0xFF))
-            .collect();
-        let msg = COMM_MSG::new_with_args(0xFF, &args);
-        match macchina.write_and_read(msg, 100) {
-            None => rec_fail += 1, // Macchina did not respond to our message
-            Some(x) => {
-                // Macchina responded!
-                if x != msg {
-                    // Check if received payload == sent payload
-                    tx_errors += 1; // Some corruption occured!
+    #[cfg(unix)]
+    const TEST_PORT: &str = "/dev/ttyACM0";
+
+    #[test]
+    #[ignore]
+    fn test_io_m2() {
+        let mut tx_errors = 0;
+        let mut rec_fail = 0;
+        let mut macchina = MacchinaM2::open_conn(TEST_PORT)
+            .expect(format!("Could not open COM port {}!", TEST_PORT).as_str());
+
+        // For this test, once we open the comm port,
+        // Fire 100 random COMM messages at the M2 module
+        // (Use type 0xFF to tell Macchina to echo back the same message)
+        // Assert that each received message is the same as what was sent
+        for _ in 0..100 {
+            let args: Vec<u8> = (0..100)
+                .map(|_| rand::thread_rng().gen_range(0, 0xFF))
+                .collect();
+            let msg = COMM_MSG::new_with_args(0xFF, &args);
+            match macchina.write_and_read(msg, 100) {
+                None => rec_fail += 1, // Macchina did not respond to our message
+                Some(x) => {
+                    // Macchina responded!
+                    if x != msg {
+                        // Check if received payload == sent payload
+                        tx_errors += 1; // Some corruption occured!
+                    }
                 }
             }
         }
+        macchina.stop();
+        assert!(tx_errors == 0);
+        assert!(rec_fail == 0);
     }
-    macchina.stop();
-    assert!(tx_errors == 0);
-    assert!(rec_fail == 0);
 }

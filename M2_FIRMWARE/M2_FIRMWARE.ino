@@ -2,6 +2,7 @@
 #include <M2_12VIO.h>
 #include "comm.h"
 
+#define FW_TEST
 
 CAN_FRAME input;
 M2_12VIO M2IO;
@@ -38,15 +39,17 @@ float getVoltage() {
   return voltage;
 }
 COMM_MSG msg = {0x00};
-
+CAN_FRAME f;
 
 void loop() {
   if (PCCOMM::read_message(&msg)) {
     switch (msg.msg_type)
     {
+#ifdef FW_TEST
     case 0xFF:
       PCCOMM::send_message(&msg); // Test Message type - Should just loop back response
       break;
+#endif
     default:
       break;
     }

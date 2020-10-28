@@ -20,6 +20,15 @@ impl Logger {
         }
     }
 
+    pub fn log_m2(&self, msg: String) {
+        if let Err(e) = self.write_to_file(format!("[M2  ] - {}", msg)) {
+            eprintln!("ERROR WRITING TO LOG ({:?})", e)
+        }
+    }
+
+
+    #[cfg(not(test))]
+    // Not test mode - Write to file
     fn write_to_file(&self, txt: String) -> std::io::Result<()> {
         if !Path::exists(Path::new(LOG_PATH)) {
             File::create(LOG_PATH)?;
@@ -35,5 +44,12 @@ impl Logger {
             txt
         )
         // Mutex gets unlocked at end of scope
+    }
+
+    #[cfg(test)]
+    // In test mode we print to stdout
+    fn write_to_file(&self, txt: String) -> std::io::Result<()> {
+        println!("{}", txt);
+        Ok(())
     }
 }
