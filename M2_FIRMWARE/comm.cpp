@@ -30,6 +30,7 @@ namespace PCCOMM {
     void send_message(COMM_MSG *msg) {
         digitalWrite(DS7_RED, LOW);
         SerialUSB.write((char*)msg, sizeof(COMM_MSG));
+        SerialUSB.flush();
         digitalWrite(DS7_RED, HIGH);
     }
 

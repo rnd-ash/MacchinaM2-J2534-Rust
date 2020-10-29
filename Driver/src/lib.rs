@@ -147,7 +147,7 @@ pub extern "system" fn PassThruIoctl(
     pInput: *mut libc::c_void,
     pOutput: *mut libc::c_void,
 ) -> i32 {
-    PassthruError::STATUS_NOERROR as i32
+    passthru_ioctl(HandleID, IoctlID, pInput, pOutput) as i32
 }
 
 #[no_mangle]

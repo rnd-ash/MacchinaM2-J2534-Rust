@@ -32,11 +32,13 @@ mod tests {
     fn test_batt() {
         let mut dev: u32 = 0;
         assert!(passthru_drv::passthru_open(&mut dev) as i32 == PassthruError::STATUS_NOERROR as i32);
+
+        let mut v: u32 = 0;
+        let p_input = std::ptr::null_mut::<libc::c_void>();
+        let p_output = (&mut v) as *mut _ as *mut libc::c_void;
         for _ in 0..10 {
-            if let Some(vbatt) = get_batt_voltage() {
-                println!("M2 Read voltage: {}V", vbatt);
-            }
-            std::thread::sleep(std::time::Duration::from_millis(100));
+            passthru_drv::passthru_ioctl(0, J2534Common::IoctlID::READ_VBATT as u32, p_input, p_output);
+            println!("V: {}", v);
         }
         passthru_drv::passthru_close(dev);
     }

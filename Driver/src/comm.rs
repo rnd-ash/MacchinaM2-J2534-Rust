@@ -1,6 +1,6 @@
 use serialport::*;
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex, atomic::AtomicU32};
+use std::sync::{Arc, Mutex, atomic::AtomicU32, atomic::AtomicBool, atomic::Ordering};
 use std::thread::{spawn, JoinHandle};
 use std::sync::RwLock;
 use lazy_static::lazy_static;
@@ -13,7 +13,7 @@ use byteorder::{LittleEndian, ByteOrder};
 use serde_json;
 
 #[cfg(windows)]
-use winreg::{RegKey, RegValue};
+use winreg::{RegKey, RegValue, enums::HKEY_LOCAL_MACHINE};
 
 lazy_static! {
     pub static ref M2: RwLock<Option<MacchinaM2>> = RwLock::new(None);
@@ -30,10 +30,10 @@ fn get_id() -> u8 {
 }
 
 pub struct MacchinaM2 {
-    p: Mutex<Box<dyn SerialPort>>,
-    rx_queue: Arc<Mutex<HashMap<u8, COMM_MSG>>>,
-    handler: JoinHandle<()>,
-    is_running: Arc<Mutex<bool>>,
+    p: Box<dyn SerialPort>,
+    rx_queue: Arc<RwLock<HashMap<u8, COMM_MSG>>>,
+    handler: Option<JoinHandle<()>>,
+    is_running: Arc<AtomicBool>,
 }
 
 unsafe impl Send for MacchinaM2{}
@@ -53,8 +53,12 @@ fn get_comm_port() -> Option<String> {
 #[cfg(windows)]
 fn get_comm_port() -> Option<String> {
     if let Ok(reg) = RegKey::predef(HKEY_LOCAL_MACHINE).open_subkey("SOFTWARE\\WOW6432Node\\PassThruSupport.04.04\\Macchina-Passthru") {
+        logger::info("Found regkey".to_string());
         return match reg.get_value("COM-PORT") {
-            Ok(s) => Some(s),
+            Ok(s) => {
+                logger::info(format!("Com port is {}", s));
+                Some(s)
+            },
             Err(_) => None
         }
     }
@@ -74,96 +78,106 @@ impl MacchinaM2 {
     fn open_conn(port: &str) -> Result<Self> {
         // Connection settings for Macchina M2 (Basically arduino SAM Board)
         let settings = SerialPortSettings {
-            baud_rate: 500_000,
-            flow_control: FlowControl::None,
+            baud_rate: 115200,
+            flow_control: FlowControl::Hardware,
             data_bits: DataBits::Eight,
             parity: Parity::None,
             stop_bits: StopBits::One,
-            timeout: std::time::Duration::from_millis(250),
+            timeout: std::time::Duration::from_millis(1),
         };
 
-        // Create a serialport connection
-        let orig_port = open_with_settings(port, &settings)?;
-        // Clear Tx and Rx buffers if any stray data exists
-        orig_port.clear(ClearBuffer::All)?;
+        let mut port = serialport::open_with_settings(port, &settings)?;
 
         // Create our Rx queue for incomming messages
-        let rx_queue = Arc::new(Mutex::new(HashMap::new()));
+        let rx_queue = Arc::new(RwLock::new(HashMap::new()));
 
-        // Clone the port so it can be used in the listener thread
-        let mut port_t = orig_port.try_clone()?;
+        let mut port_ref = port.try_clone()?;
+
         // Clone the queue so it can be used in the listener thread
         let queue_t = rx_queue.clone();
 
         // Set tell the thread to run by default
-        let is_running = Arc::new(Mutex::new(true));
-
+        let is_running = Arc::new(AtomicBool::new(true));
         let is_running_t = is_running.clone();
 
         // Since UNIX has a 4KB Page size, I want to store more data,
         // Use a 8KB Buffer
-        let handler = spawn(move || {
+        let handler = Some(spawn(move || {
             logger::info("M2 receiver thread starting!".to_string());
+            let mut read_buffer: Vec<u8> = vec![0x00; COMM_MSG_SIZE];
             loop {
-                if port_t.bytes_to_read().unwrap() >= COMM_MSG_SIZE as u32 {
-                    let mut buf: Vec<u8> = vec![0; COMM_MSG_SIZE];
-                    port_t.read_exact(buf.as_mut_slice()).unwrap();
-                    // Aquire lock before writing to the vec queue
-                    let msg = COMM_MSG::from_vec(&buf);
-                    match msg.msg_type {
-                        MsgType::LogMsg => logger::log_m2(String::from_utf8(Vec::from(msg.args)).unwrap()),
-                        _ => {queue_t.lock().unwrap().insert(msg.msg_id, msg);},
+                if port_ref.bytes_to_read().unwrap() as usize >= COMM_MSG_SIZE { // Check if we have enough bytes to read in buffer
+                    match port_ref.read_exact(read_buffer.as_mut_slice()) {
+                        Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => (), // Timeout, no data
+                        Err(e) => logger::warn(format!("Cannot read serial: {}", e)),
+                        Ok(_) => {
+                            let msg = COMM_MSG::from_vec(&read_buffer);
+                            println!("MSG!: {}", msg);
+                            match msg.msg_type {
+                                MsgType::LogMsg => logger::log_m2(String::from_utf8(Vec::from(msg.args)).unwrap()),
+                                _ => {queue_t.write().unwrap().insert(msg.msg_id, msg);}
+                            }
+                        }
                     }
                 }
 
-                if *is_running_t.lock().unwrap() == false {
+                if is_running_t.load(Ordering::Relaxed) == false {
                     logger::info("M2 receiver thread exiting".to_string());
                     break;
                 }
             }
-        });
+        }));
 
-        Ok(MacchinaM2 {
-            p: Mutex::new(orig_port),
+        let msg = COMM_MSG::new_with_args(MsgType::StatusMsg, &[0x01]);
+        port.write_all(&msg.to_slice()).unwrap();
+        let m = MacchinaM2 {
+            p: port,
             rx_queue,
             handler,
             is_running,
-        })
+        };
+        return Ok(m);
     }
 
     pub fn write_comm_struct(&mut self, mut s: COMM_MSG) -> std::io::Result<()> {
         s.msg_id = 0x00; // Tell M2 it doesn't have to respond to request
         let buffer = s.to_slice();
-        self.p.lock().unwrap().write_all(&buffer)
+        self.p.write_all(&buffer)
     }
 
     /// Writes a message to the M2 unit, and expects a designated response back from the unit
     pub fn write_and_read(&mut self, mut s: COMM_MSG, timeout_ms: u128) -> Option<COMM_MSG> {
         let query_id = get_id(); // Set a unique ID, M2 is now forced to respond
         s.msg_id = query_id;
-        if let Err(e) = self.p.lock().unwrap().write_all(&s.to_slice()) {
-            logger::error(format!("Error writing to M2: {}", e));
+        if let Err(x) = self.p.write_all(&s.to_slice()) {
+            logger::error(format!("Error writing to M2: {}", x));
             return None;
         }
         let start = std::time::Instant::now();
-        while start.elapsed().as_millis() < timeout_ms {
+        while start.elapsed().as_millis() <= 1000 {
             // Found what we need!
-            if let Some(msg) = self.rx_queue.lock().unwrap().remove(&query_id) {
-                return Some(msg);
+            if self.rx_queue.read().unwrap().contains_key(&query_id) {
+                println!("Msg found");
+                return self.rx_queue.write().unwrap().remove(&query_id);
             }
+            std::thread::sleep(std::time::Duration::from_millis(2))
         }
+        logger::error(format!("Read timeout. Written msg: {}", s));
         return None;
     }
 
     pub fn stop(&mut self) {
-        *self.is_running.lock().unwrap() = false;
+        let msg = COMM_MSG::new_with_args(MsgType::StatusMsg, &[0x00]);
+        self.write_comm_struct(msg).unwrap();
+        self.p.flush().unwrap(); // Flush our buffers before terminating
+        self.is_running.store(false, Ordering::Relaxed);
+        self.handler.take().map(JoinHandle::join);
     }
 }
 
 // Terminate the thread on Struct Drop
 impl Drop for MacchinaM2 {
     fn drop(&mut self) {
-        self.stop()
     }
 }
 
@@ -179,6 +193,7 @@ pub enum MsgType {
     ChannelData = 0x04,
     ReadBatt = 0x05,
 
+    StatusMsg = 0xAA,
     #[cfg(test)]
     TestMessage = 0xFF
 }
@@ -301,14 +316,14 @@ impl COMM_MSG {
     }
 }
 
-pub fn get_batt_voltage() -> Option<f32> {
+pub fn get_batt_voltage() -> Option<u32> {
     let msg = COMM_MSG::new(MsgType::ReadBatt);
     if let Ok(opt) = M2.write().as_deref_mut() {
         match opt {
             Some(device) => {
                 if let Some(resp) = device.write_and_read(msg, 100) {
                     if resp.msg_type == MsgType::ReadBatt {
-                        return Some(byteorder::LittleEndian::read_f32(&resp.args));
+                        return Some(byteorder::LittleEndian::read_u32(&resp.args));
                     }
                 }
                 return None
@@ -343,12 +358,12 @@ mod comm_test {
         // Fire 100 random COMM messages at the M2 module
         // (Use type 0xFF to tell Macchina to echo back the same message)
         // Assert that each received message is the same as what was sent
-        for _ in 0..1000 {
+        for _ in 0..10 {
             let args: Vec<u8> = (0..100)
                 .map(|_| rand::thread_rng().gen_range(0, 0xFF))
                 .collect();
             let msg = COMM_MSG::new_with_args(MsgType::TestMessage, &args);
-            match macchina.write_and_read(msg, 100) {
+            match macchina.write_and_read(msg, 250) {
                 None => rec_fail += 1, // Macchina did not respond to our message
                 Some(x) => {
                     // Macchina responded!

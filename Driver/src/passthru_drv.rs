@@ -67,7 +67,10 @@ pub fn passthru_open(device_id: *mut u32) -> PassthruError {
                 }
                 return PassthruError::ERR_FAILED;
             }
-            Err(x) => return PassthruError::ERR_DEVICE_NOT_CONNECTED
+            Err(x) => {
+                logger::error(format!("Cannot open com port. Error: {}", x));
+                return PassthruError::ERR_DEVICE_NOT_CONNECTED
+            }
         }
     }
 }
@@ -79,12 +82,43 @@ pub fn passthru_close(pDeviceID: u32) -> PassthruError {
         return PassthruError::ERR_INVALID_DEVICE_ID
     }
     if M2.read().unwrap().is_none() {
-        return PassthruError::ERR_FAILED;
+        return PassthruError::STATUS_NOERROR;
     } else {
+        if let Ok(d) = M2.write().as_deref_mut() {
+            match d {
+                Some(dev) => dev.stop(),
+                None => {return PassthruError::STATUS_NOERROR}
+            }
+        }
+
         if let Ok(ptr) = M2.write().as_deref_mut() {
             *ptr = None;
             return PassthruError::STATUS_NOERROR;
         }
         return PassthruError::ERR_FAILED;
     }
+}
+
+pub fn passthru_ioctl(
+    HandleID: u32,
+    IoctlID: u32,
+    pInput: *mut libc::c_void,
+    pOutput: *mut libc::c_void,
+) -> PassthruError {
+    if IoctlID == J2534Common::IoctlID::READ_VBATT as u32 {
+        logger::info(format!("Getting voltage"));
+        match get_batt_voltage() {
+            None => {
+                logger::warn(format!("Error retreiving VBatt"));
+                return PassthruError::ERR_FAILED;
+            },
+            Some(v) => {
+                logger::info(format!("Reported voltage: {}V", v));
+                let output: &mut u32 = unsafe { &mut *(pOutput as *mut u32) };
+                *output = v;
+                return PassthruError::STATUS_NOERROR;
+            }
+        }
+    }
+    PassthruError::STATUS_NOERROR 
 }

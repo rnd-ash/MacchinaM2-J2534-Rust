@@ -8,7 +8,7 @@ CAN_FRAME input;
 M2_12VIO M2IO;
 
 void setup() {
-  SerialUSB.begin(500000); // 500 kbps 
+  SerialUSB.begin(115200); // 500 kbps 
   pinMode(DS6, OUTPUT); // Green
   pinMode(DS5, OUTPUT); // Yellow
   pinMode(DS4, OUTPUT); // Yellow
@@ -19,9 +19,13 @@ void setup() {
   pinMode(DS7_RED, OUTPUT);   // RGB (Red)
   digitalWrite(DS2, LOW); // At startup assume no PC
   digitalWrite(DS6, HIGH);
+  digitalWrite(DS5, HIGH);
+  digitalWrite(DS4, HIGH);
+  digitalWrite(DS3, HIGH);
   digitalWrite(DS7_GREEN, HIGH);
   digitalWrite(DS7_BLUE, HIGH);
   digitalWrite(DS7_RED, HIGH);
+  set_status_led(0x00); // No connection on powerup
   M2IO.Init_12VIO();
 }
 
@@ -42,13 +46,22 @@ COMM_MSG msg = {0x00};
 CAN_FRAME f;
 
 void send_v_batt(COMM_MSG *msg) {
-  msg->arg_size = sizeof(float);
+  msg->arg_size = sizeof(long);
   msg->msg_type = MSG_READ_BATT;
-  float v_batt = getVoltage();
-  memcpy(&msg->args[0], &v_batt, sizeof(float));
+  unsigned long v_batt = getVoltage() * 1000;
+  memcpy(&msg->args[0], &v_batt, sizeof(long));
   PCCOMM::send_message(msg);
 }
 
+void set_status_led(uint8_t status) {
+  if (status == 0x00) {
+    digitalWrite(DS6, HIGH); // Green Off
+    digitalWrite(DS2, LOW); // Red On
+  } else {
+    digitalWrite(DS6, LOW); // Green On
+    digitalWrite(DS2, HIGH); // Red Off
+  }
+}
 
 void loop() {
   if (PCCOMM::read_message(&msg)) {
@@ -58,10 +71,13 @@ void loop() {
     case MSG_TEST:
       PCCOMM::send_message(&msg); // Test Message type - Should just loop back response
       break;
+#endif
+    case MSG_STATUS:
+      set_status_led(msg.args[0]);
+      break;
     case MSG_READ_BATT:
       send_v_batt(&msg);
       break;
-#endif
     default:
       break;
     }

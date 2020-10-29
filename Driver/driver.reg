@@ -6,6 +6,7 @@ Windows Registry Editor Version 5.00
 "Vendor"="rnd-ash@github.com"
 "Name"="Macchina M2 UTD Passthru"
 "FunctionLibrary"="C:\\Program Files (x86)\\macchina\\passthru\\driver.dll"
+"COM-PORT"="COM10"
 "CAN"=dword:00000001
 "ISO15765"=dword:00000001
 "ISO9141"=dword:00000001
@@ -16,6 +17,3 @@ Windows Registry Editor Version 5.00
 "SCI_B_ENGINE"=dword:00000000
 "SCI_A_TRANS"=dword:00000000
 "SCI_B_TRANS"=dword:00000000
-
-; IMPORTANT - REPLACE THIS LINE WITH THE COM PORT OF YOUR M2 UNIT
-"COM-PORT"="COM10"
