@@ -13,32 +13,32 @@ mod lib_tests;
 #[no_mangle]
 #[cfg(windows)]
 #[allow(non_snake_case)]
-pub extern "system" fn DllMain(_module: u32, _reason: u32, _reserved: *mut std::ffi::c_void) -> bool {
+pub extern "stdcall" fn DllMain(_module: u32, _reason: u32, _reserved: *mut std::ffi::c_void) -> bool {
     return true
 }
 
 #[no_mangle]
 #[allow(non_snake_case)]
-pub extern "system" fn PassThruOpen(_name: *mut libc::c_void, device_id: *mut u32) -> i32 {
+pub extern "stdcall" fn PassThruOpen(_name: *mut libc::c_void, device_id: *mut u32) -> i32 {
     passthru_open(device_id) as i32
 }
 
 #[no_mangle]
 #[allow(non_snake_case)]
-pub extern "system" fn PassThruClose(pDeviceID: u32) -> i32 {
+pub extern "stdcall" fn PassThruClose(pDeviceID: u32) -> i32 {
     passthru_close(pDeviceID) as i32
 }
 
 #[no_mangle]
 #[allow(non_snake_case)]
-pub extern "system" fn PassThruConnect(
+pub extern "stdcall" fn PassThruConnect(
     DeviceID: u32,
     ProtocolID: u32,
     Flags: u32,
     BaudRate: u32,
     pChannelID: *mut u32,
 ) -> i32 {
-    let prot = Protocol::fromByte(ProtocolID);
+    let prot = Protocol::from_raw(ProtocolID);
     logger::info(format!(
         "PASSTHRU_CONNECT. Protocol: {:?}, Baudrate: {}",
         prot, BaudRate
@@ -48,13 +48,13 @@ pub extern "system" fn PassThruConnect(
 
 #[no_mangle]
 #[allow(non_snake_case)]
-pub extern "system" fn PassThruDisconnect(ChannelID: u32) -> i32 {
+pub extern "stdcall" fn PassThruDisconnect(ChannelID: u32) -> i32 {
     PassthruError::STATUS_NOERROR as i32
 }
 
 #[no_mangle]
 #[allow(non_snake_case)]
-pub extern "system" fn PassThruReadVersion(
+pub extern "stdcall" fn PassThruReadVersion(
     _device_id: u32,
     fw_version_ptr: *mut c_char,
     dll_version_ptr: *mut c_char,
@@ -65,13 +65,13 @@ pub extern "system" fn PassThruReadVersion(
 
 #[no_mangle]
 #[allow(non_snake_case)]
-pub extern "system" fn PassThruGetLastError(pErrorDescription: *mut c_char) -> i32 {
-    PassthruError::STATUS_NOERROR as i32
+pub extern "stdcall" fn PassThruGetLastError(pErrorDescription: *mut c_char) -> i32 {
+    passthru_get_last_error(pErrorDescription) as i32
 }
 
 #[no_mangle]
 #[allow(non_snake_case)]
-pub extern "system" fn PassThruReadMsgs(
+pub extern "stdcall" fn PassThruReadMsgs(
     ChannelID: u32,
     pMsg: *mut PASSTHRU_MSG,
     pNumMsgs: *mut u32,
@@ -82,7 +82,7 @@ pub extern "system" fn PassThruReadMsgs(
 
 #[no_mangle]
 #[allow(non_snake_case)]
-pub extern "system" fn PassThruStartMsgFilter(
+pub extern "stdcall" fn PassThruStartMsgFilter(
     ChannelID: u32,
     FilterType: u32,
     pMaskMsg: *const PASSTHRU_MSG,
@@ -95,20 +95,20 @@ pub extern "system" fn PassThruStartMsgFilter(
 
 #[no_mangle]
 #[allow(non_snake_case)]
-pub extern "system" fn PassThruStopMsgFilter(ChannelID: u32, MsgID: u32) -> i32 {
+pub extern "stdcall" fn PassThruStopMsgFilter(ChannelID: u32, MsgID: u32) -> i32 {
     PassthruError::STATUS_NOERROR as i32
 }
 
 #[no_mangle]
 #[allow(non_snake_case)]
-pub extern "system" fn PassThruWriteMsgs(
+pub extern "stdcall" fn PassThruWriteMsgs(
     ChannelID: u32,
     pMsg: *const PASSTHRU_MSG,
     pNumMsgs: *const u32,
     Timeout: u32,
 ) -> i32 {
     if let Some(ptr) = unsafe { pMsg.as_ref() } {
-        let prot = match Protocol::fromByte(ptr.protocol_id) {
+        let prot = match Protocol::from_raw(ptr.protocol_id) {
             Some(p) => p,
             None => return PassthruError::ERR_INVALID_PROTOCOL_ID as i32,
         };
@@ -124,7 +124,7 @@ pub extern "system" fn PassThruWriteMsgs(
 
 #[no_mangle]
 #[allow(non_snake_case)]
-pub extern "system" fn PassThruStartPeriodicMsg(
+pub extern "stdcall" fn PassThruStartPeriodicMsg(
     ChannelID: u32,
     pMsg: *const PASSTHRU_MSG,
     pMsgID: *const u32,
@@ -135,13 +135,13 @@ pub extern "system" fn PassThruStartPeriodicMsg(
 
 #[no_mangle]
 #[allow(non_snake_case)]
-pub extern "system" fn PassThruStopPeriodicMsg(ChannelID: u32, MsgID: u32) -> i32 {
+pub extern "stdcall" fn PassThruStopPeriodicMsg(ChannelID: u32, MsgID: u32) -> i32 {
     PassthruError::STATUS_NOERROR as i32
 }
 
 #[no_mangle]
 #[allow(non_snake_case)]
-pub extern "system" fn PassThruIoctl(
+pub extern "stdcall" fn PassThruIoctl(
     HandleID: u32,
     IoctlID: u32,
     pInput: *mut libc::c_void,
@@ -152,10 +152,12 @@ pub extern "system" fn PassThruIoctl(
 
 #[no_mangle]
 #[allow(non_snake_case)]
-pub extern "system" fn PassThruSetProgrammingVoltage(
+pub extern "stdcall" fn PassThruSetProgrammingVoltage(
     DeviceID: u32,
     PinNumber: u32,
     Voltage: u32,
 ) -> i32 {
-    PassthruError::STATUS_NOERROR as i32
+    // This isn't used as Macchina hardware does not support this
+    set_error_string("Programming voltage is not supported".to_string());
+    PassthruError::ERR_FAILED as i32
 }

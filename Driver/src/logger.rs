@@ -10,7 +10,7 @@ use lazy_static::*;
 const LOG_PATH: &str = "C:\\Program Files (x86)\\macchina\\passthru\\driver_log.txt";
 
 #[cfg(unix)]
-const LOG_PATH: &str = "/usr/share/macchina/passthru/driver_log.txt";
+const LOG_PATH: &str = "driver_log.txt";
 
 lazy_static! {
     static ref LOGGER : Mutex<Logger> = Mutex::new(Logger::new());
@@ -52,16 +52,20 @@ impl Logger {
                 eprintln!("LOG FILE CREATE ERROR! [{}]", x);
             }
         }
+        println!("{}", txt);
 
+        /*
         let mut ops = std::fs::OpenOptions::new()
             .write(true)
             .append(true)
+            .create(true)
             .open(LOG_PATH)
             .unwrap();
 
         if let Err(e) = writeln!(ops, "{}", txt) {
             eprintln!("WRITE ERROR! [{}] - '{}'", e, txt);
         }
+        */
         // Mutex gets unlocked at end of scope
     }
 

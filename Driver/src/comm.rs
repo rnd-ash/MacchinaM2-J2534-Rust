@@ -1,4 +1,5 @@
 use serialport::*;
+use std::io::{Write, Read, Error, ErrorKind};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, atomic::AtomicU32, atomic::AtomicBool, atomic::Ordering};
 use std::thread::{spawn, JoinHandle};
@@ -30,14 +31,16 @@ fn get_id() -> u8 {
 }
 
 pub struct MacchinaM2 {
-    p: Box<dyn SerialPort>,
     rx_queue: Arc<RwLock<HashMap<u8, COMM_MSG>>>,
     handler: Option<JoinHandle<()>>,
     is_running: Arc<AtomicBool>,
+    port: Box<dyn SerialPort>
 }
 
 unsafe impl Send for MacchinaM2{}
 unsafe impl Sync for MacchinaM2{}
+
+type Result<T> = std::io::Result<T>;
 
 #[cfg(unix)]
 fn get_comm_port() -> Option<String> {
@@ -70,31 +73,31 @@ impl MacchinaM2 {
     pub fn open_connection() -> Result<Self> {
         match get_comm_port() {
             Some(s) => MacchinaM2::open_conn(s.as_str()),
-            None => Err(serialport::Error::new(ErrorKind::NoDevice, "Cannot find COM-PORT attribute"))
+            None => Err(Error::new(ErrorKind::NotFound, "Cannot find COM-PORT attribute"))
         }
     }
 
 
     fn open_conn(port: &str) -> Result<Self> {
-        // Connection settings for Macchina M2 (Basically arduino SAM Board)
-        let settings = SerialPortSettings {
+
+        let settings = serialport::SerialPortSettings {
             baud_rate: 115200,
-            flow_control: FlowControl::Hardware,
             data_bits: DataBits::Eight,
+            flow_control: FlowControl::Hardware,
             parity: Parity::None,
             stop_bits: StopBits::One,
-            timeout: std::time::Duration::from_millis(1),
+            timeout: std::time::Duration::from_millis(1)
+        };
+        let mut port = match serialport::open_with_settings(&port, &settings) {
+            Ok(port) => port,
+            Err(e) => {return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Error opening port {}", e.to_string())));}
         };
 
-        let mut port = serialport::open_with_settings(port, &settings)?;
+        let port_t = port.try_clone().unwrap();
 
         // Create our Rx queue for incomming messages
         let rx_queue = Arc::new(RwLock::new(HashMap::new()));
-
-        let mut port_ref = port.try_clone()?;
-
-        // Clone the queue so it can be used in the listener thread
-        let queue_t = rx_queue.clone();
+        let rx_queue_t = rx_queue.clone();
 
         // Set tell the thread to run by default
         let is_running = Arc::new(AtomicBool::new(true));
@@ -103,73 +106,74 @@ impl MacchinaM2 {
         // Since UNIX has a 4KB Page size, I want to store more data,
         // Use a 8KB Buffer
         let handler = Some(spawn(move || {
+            let mut read_buffer: [u8; COMM_MSG_SIZE] = [0x00; COMM_MSG_SIZE];
+            let mut pos = 0;
             logger::info("M2 receiver thread starting!".to_string());
-            let mut read_buffer: Vec<u8> = vec![0x00; COMM_MSG_SIZE];
-            loop {
-                if port_ref.bytes_to_read().unwrap() as usize >= COMM_MSG_SIZE { // Check if we have enough bytes to read in buffer
-                    match port_ref.read_exact(read_buffer.as_mut_slice()) {
-                        Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => (), // Timeout, no data
-                        Err(e) => logger::warn(format!("Cannot read serial: {}", e)),
-                        Ok(_) => {
+            let msg = COMM_MSG::new_with_args(MsgType::StatusMsg, &[0x01]);
+            port.write_all(&msg.to_slice()).unwrap();
+            while is_running_t.load(Ordering::Relaxed) {
+                match port.read(&mut read_buffer[pos..]) {
+                    Ok(size) => {
+                        pos += size;
+                        if pos == COMM_MSG_SIZE {
+                            pos = 0;
                             let msg = COMM_MSG::from_vec(&read_buffer);
-                            println!("MSG!: {}", msg);
                             match msg.msg_type {
-                                MsgType::LogMsg => logger::log_m2(String::from_utf8(Vec::from(msg.args)).unwrap()),
-                                _ => {queue_t.write().unwrap().insert(msg.msg_id, msg);}
+                                MsgType::LogMsg => { logger::log_m2(String::from_utf8(Vec::from(msg.args)).unwrap()) },
+                                _ => {
+                                    rx_queue_t.write().unwrap().insert(msg.msg_id, msg);
+                                }
                             }
                         }
                     }
+                    Err(_) => {}
                 }
-
-                if is_running_t.load(Ordering::Relaxed) == false {
-                    logger::info("M2 receiver thread exiting".to_string());
-                    break;
-                }
+                std::thread::sleep(std::time::Duration::from_millis(2));
             }
+            let msg = COMM_MSG::new_with_args(MsgType::StatusMsg, &[0x00]);
+            port.write_all(&msg.to_slice());
+            port.flush();
+            logger::info("M2 receiver thread exiting".to_string());
         }));
 
-        let msg = COMM_MSG::new_with_args(MsgType::StatusMsg, &[0x01]);
-        port.write_all(&msg.to_slice()).unwrap();
+        //while is_started.load(Ordering::Relaxed) == false {} // Wait for thread to start
+
         let m = MacchinaM2 {
-            p: port,
             rx_queue,
             handler,
             is_running,
+            port: port_t
         };
         return Ok(m);
     }
 
-    pub fn write_comm_struct(&mut self, mut s: COMM_MSG) -> std::io::Result<()> {
+    pub fn write_comm_struct(&mut self, mut s: COMM_MSG) {
         s.msg_id = 0x00; // Tell M2 it doesn't have to respond to request
-        let buffer = s.to_slice();
-        self.p.write_all(&buffer)
+        println!("OUT->{}", s);
+        self.port.write_all(&s.to_slice());
     }
 
     /// Writes a message to the M2 unit, and expects a designated response back from the unit
     pub fn write_and_read(&mut self, mut s: COMM_MSG, timeout_ms: u128) -> Option<COMM_MSG> {
         let query_id = get_id(); // Set a unique ID, M2 is now forced to respond
         s.msg_id = query_id;
-        if let Err(x) = self.p.write_all(&s.to_slice()) {
-            logger::error(format!("Error writing to M2: {}", x));
-            return None;
-        }
-        let start = std::time::Instant::now();
-        while start.elapsed().as_millis() <= 1000 {
-            // Found what we need!
-            if self.rx_queue.read().unwrap().contains_key(&query_id) {
-                println!("Msg found");
-                return self.rx_queue.write().unwrap().remove(&query_id);
+        self.port.write_all(&s.to_slice());
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let start_time = std::time::Instant::now();
+        while start_time.elapsed().as_millis() <= timeout_ms {
+            if let Ok(mut lock) = self.rx_queue.write() {
+                if lock.contains_key(&query_id) {
+                    println!("READ -> DATA");
+                    return lock.remove(&query_id);
+                }
             }
-            std::thread::sleep(std::time::Duration::from_millis(2))
+            std::thread::sleep(std::time::Duration::from_millis(2));
         }
-        logger::error(format!("Read timeout. Written msg: {}", s));
+
         return None;
     }
 
     pub fn stop(&mut self) {
-        let msg = COMM_MSG::new_with_args(MsgType::StatusMsg, &[0x00]);
-        self.write_comm_struct(msg).unwrap();
-        self.p.flush().unwrap(); // Flush our buffers before terminating
         self.is_running.store(false, Ordering::Relaxed);
         self.handler.take().map(JoinHandle::join);
     }
@@ -321,7 +325,7 @@ pub fn get_batt_voltage() -> Option<u32> {
     if let Ok(opt) = M2.write().as_deref_mut() {
         match opt {
             Some(device) => {
-                if let Some(resp) = device.write_and_read(msg, 100) {
+                if let Some(resp) = device.write_and_read(msg, 250) {
                     if resp.msg_type == MsgType::ReadBatt {
                         return Some(byteorder::LittleEndian::read_u32(&resp.args));
                     }

@@ -1,15 +1,21 @@
 #[macro_use]
 extern crate bitflags;
-extern crate num_enum;
 
-use num_enum::TryFromPrimitive;
-use std::convert::TryFrom;
+use serde::{Deserialize, Serialize};
+use num_derive::FromPrimitive;
+use num_traits::FromPrimitive;
 
 // SAE J2534 API definition,
 // Based on J2534.h
 
-#[derive(Debug, Eq, PartialEq, TryFromPrimitive)]
+pub trait Loggable {
+    fn to_string(&self) -> &str;
+    fn from_raw(x: u32) -> Option<Self> where Self: Sized;
+}
+
+
 #[repr(u32)]
+#[derive(Debug, FromPrimitive, Deserialize, Serialize)]
 #[allow(non_camel_case_types, dead_code)]
 pub enum Protocol {
     J1850VPW = 0x01,
@@ -24,12 +30,28 @@ pub enum Protocol {
     SCI_B_TRANS = 0x0A,
 }
 
-impl Protocol {
-    pub fn fromByte(protocol_id: u32) -> Option<Protocol> {
-        Protocol::try_from(protocol_id).ok()
+impl Loggable for Protocol {
+    fn to_string(&self) -> &str {
+        match &self {
+            Protocol::J1850VPW => "J1850 VPW",
+            Protocol::J1850PWM => "J1850 PWM",
+            Protocol::ISO9141 => "ISO 9141",
+            Protocol::ISO14230 => "ISO 14230",
+            Protocol::CAN => "CAN",
+            Protocol::ISO15765 => "ISO 15765",
+            Protocol::SCI_A_ENGINE => "SCI A ENGINE",
+            Protocol::SCI_A_TRANS => "SCI A TRANS",
+            Protocol::SCI_B_ENGINE => "SCI B ENGINE",
+            Protocol::SCI_B_TRANS => "SCI B TRANS",
+        }
     }
+    fn from_raw(x: u32) -> Option<Self> {
+        FromPrimitive::from_u32(x)
+    }
+
 }
 
+#[repr(u32)]
 #[derive(Debug)]
 #[allow(non_camel_case_types, dead_code)]
 pub enum IoctlID {
@@ -48,6 +70,7 @@ pub enum IoctlID {
     READ_PROG_VOLTAGE = 0x0E,
 }
 
+#[repr(u32)]
 #[derive(Debug)]
 #[allow(non_camel_case_types, dead_code)]
 pub enum IoctlParam {
@@ -92,7 +115,8 @@ pub enum IoctlParam {
     ISO15765_WFT_MAX = 0x25,
 }
 
-#[derive(Debug)]
+#[repr(u32)]
+#[derive(Debug, PartialEq, FromPrimitive)]
 #[allow(non_camel_case_types, dead_code)]
 pub enum PassthruError {
     STATUS_NOERROR = 0x00,
@@ -115,7 +139,7 @@ pub enum PassthruError {
     ERR_BUFFER_EMPTY = 0x10,
     ERR_BUFFER_FULL = 0x11,
     ERR_BUFFER_OVERFLOW = 0x12,
-    ERR_PIN_INVALUD = 0x13,
+    ERR_PIN_INVALID = 0x13,
     ERR_CHANNEL_IN_USE = 0x14,
     ERR_MSG_PROTOCOL_ID = 0x15,
 
@@ -124,6 +148,45 @@ pub enum PassthruError {
     ERR_NOT_UNIQUE = 0x18,
     ERR_INVALID_BAUDRATE = 0x19,
     ERR_INVALID_DEVICE_ID = 0x1A,
+}
+
+impl Loggable for PassthruError {
+    fn to_string(&self) -> &str {
+        match &self {
+            PassthruError::STATUS_NOERROR => "No Error",
+            PassthruError::ERR_NOT_SUPPORTED => "Operation not supported",
+            PassthruError::ERR_INVALID_CHANNEL_ID => "Invalid channel ID",
+            PassthruError::ERR_INVALID_PROTOCOL_ID => "Invalid protocol ID",
+            PassthruError::ERR_NULL_PARAMETER => "Null parameter received",
+            PassthruError::ERR_INVALID_IOCTL_VALUE => "Invalid IOCTL Value",
+            PassthruError::ERR_INVALID_FLAGS => "Invalid flags",
+            PassthruError::ERR_FAILED => "Unspecified error",
+            PassthruError::ERR_DEVICE_NOT_CONNECTED => "Device not connected",
+            PassthruError::ERR_TIMEOUT => "Device timeout",
+            PassthruError::ERR_INVALID_MSG => "Invalid or malformed message",
+            PassthruError::ERR_INVALID_TIME_INTERVAL => "Time interval outside specified range",
+            PassthruError::ERR_EXCEEDED_LIMIT => "Too many filters or periodic messages",
+            PassthruError::ERR_INVALID_MSG_ID => "Message ID / Handle ID not recognised",
+            PassthruError::ERR_DEVICE_IN_USE => "Device is already in use",
+            PassthruError::ERR_INVALID_IOCTL_ID => "IOCTL ID not recognised",
+            PassthruError::ERR_BUFFER_EMPTY => "Receive buffer is empty",
+            PassthruError::ERR_BUFFER_FULL => "Transmit buffer is full",
+            PassthruError::ERR_BUFFER_OVERFLOW => "Device buffer overflow",
+            PassthruError::ERR_PIN_INVALID => "Unknown pin specified",
+            PassthruError::ERR_CHANNEL_IN_USE => "Channel is already in use",
+            PassthruError::ERR_MSG_PROTOCOL_ID => "Message protocol ID does not match that of the communication channel",
+            PassthruError::ERR_INVALID_FILTER_ID => "Filter ID not recognised",
+            PassthruError::ERR_NO_FLOW_CONTROL => "No flow control filter is set",
+            PassthruError::ERR_NOT_UNIQUE => "An existing filter already matches",
+            PassthruError::ERR_INVALID_BAUDRATE => "Unable to set requested baudrate",
+            PassthruError::ERR_INVALID_DEVICE_ID => "Device ID not recognised",
+        }
+    }
+
+    fn from_raw(x: u32) -> Option<Self>
+    where Self: Sized {
+        FromPrimitive::from_u32(x)   
+    }
 }
 
 #[derive(Debug)]
@@ -235,9 +298,8 @@ pub struct SConfigList {
 }
 
 #[test]
-fn testProtocol() {
-    if let Some(pcall) = Protocol::fromByte(0x06) {
-        assert!(pcall == Protocol::ISO15765)
-    }
-    assert!(Protocol::fromByte(0xFF).is_none())
+fn test_fail() {
+    let x: u32 = 0x0B;
+    let res = Protocol::from_u32(x);
+    println!("{:?}", res);
 }

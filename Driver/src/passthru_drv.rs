@@ -3,6 +3,8 @@ use std::ffi::CString;
 use J2534Common::*;
 use crate::logger;
 use crate::comm::*;
+use lazy_static::lazy_static;
+use std::sync::Mutex;
 
 /// J2534 API Version supported - In this case 04.04
 const API_VERSION: &str = "04.04";
@@ -11,6 +13,15 @@ const DLL_VERSION: &str = "0.1";
 /// Firmware version of the ODB2 hardware
 const FW_VERSION: &str = "0.1";
 
+lazy_static! {
+    pub static ref LAST_ERROR_STR: Mutex<String> = Mutex::new(String::from(""));
+}
+
+#[allow(unused_must_use)]
+pub fn set_error_string(input: String) {
+    let mut state = LAST_ERROR_STR.lock().unwrap();
+    std::mem::replace(&mut *state, input);
+}
 
 /// Our device ID that will be returned back to the application (0x1234)
 const DEVICE_ID: u32 = 0x1234;
@@ -41,15 +52,25 @@ pub fn passthru_read_version(
 ) -> PassthruError {
 
     if !copy_str_unsafe(fw_version_ptr, FW_VERSION) {
+        set_error_string("FW Version copy failed".to_string());
         return PassthruError::ERR_FAILED
     }
     if !copy_str_unsafe(api_version_ptr, API_VERSION) {
+        set_error_string("API Version copy failed".to_string());
         return PassthruError::ERR_FAILED
     }
     if !copy_str_unsafe(dll_version_ptr, DLL_VERSION) {
+        set_error_string("DLL Version copy failed".to_string());
         return PassthruError::ERR_FAILED
     }
     PassthruError::STATUS_NOERROR
+}
+
+pub fn passthru_get_last_error(dest: *mut c_char) -> PassthruError {
+    match copy_str_unsafe(dest, LAST_ERROR_STR.lock().unwrap().as_str()) {
+        false => PassthruError::ERR_FAILED,
+        true => PassthruError::STATUS_NOERROR
+    }
 }
 
 
@@ -62,13 +83,15 @@ pub fn passthru_open(device_id: *mut u32) -> PassthruError {
             Ok(dev) => {
                 if let Ok(ptr) = M2.write().as_deref_mut() {
                     *ptr = Some(dev);
-                    unsafe { *device_id = DEVICE_ID };
+                    unsafe { std::ptr::write(device_id, DEVICE_ID) };
                     return PassthruError::STATUS_NOERROR;
                 }
+                set_error_string(format!("Failed to obtain write access to M2"));
                 return PassthruError::ERR_FAILED;
             }
             Err(x) => {
                 logger::error(format!("Cannot open com port. Error: {}", x));
+                set_error_string(format!("COM Port open failed with error {}", x));
                 return PassthruError::ERR_DEVICE_NOT_CONNECTED
             }
         }

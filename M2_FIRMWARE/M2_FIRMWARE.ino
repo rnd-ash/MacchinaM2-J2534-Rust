@@ -46,10 +46,10 @@ COMM_MSG msg = {0x00};
 CAN_FRAME f;
 
 void send_v_batt(COMM_MSG *msg) {
-  msg->arg_size = sizeof(long);
+  msg->arg_size = 4;
   msg->msg_type = MSG_READ_BATT;
   unsigned long v_batt = getVoltage() * 1000;
-  memcpy(&msg->args[0], &v_batt, sizeof(long));
+  memcpy(&msg->args[0], &v_batt, 4);
   PCCOMM::send_message(msg);
 }
 
