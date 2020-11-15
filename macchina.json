@@ -9,7 +9,7 @@
 	"SCI_B_ENGINE" : false,
 	"J1850VPW" : false,
 	"J1850PWM" : false,
-	"FUNCTION_LIB": "/usr/share/passthru/macchina.so",
+	"FUNCTION_LIB": "~/.passthru/macchina.so",
 	"NAME": "Macchina M2 Under the dash",
 	"VENDOR": "rnd-ash@github.com",
 	"COM-PORT": "/dev/ttyACM0"
