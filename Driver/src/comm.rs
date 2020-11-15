@@ -34,7 +34,10 @@ pub struct MacchinaM2 {
     rx_queue: Arc<RwLock<HashMap<u8, COMM_MSG>>>,
     handler: Option<JoinHandle<()>>,
     is_running: Arc<AtomicBool>,
-    port: Box<dyn SerialPort>
+    #[cfg(windows)]
+    port: serialport::COMPort,
+    #[cfg(unix)]
+    port: serialport::TTYPort,
 }
 
 unsafe impl Send for MacchinaM2{}
@@ -44,7 +47,7 @@ type Result<T> = std::io::Result<T>;
 
 #[cfg(unix)]
 fn get_comm_port() -> Option<String> {
-    if let Ok(content) = std::fs::read_to_string("/usr/share/passthru/macchina.json") {
+    if let Ok(content) = std::fs::read_to_string(shellexpand::tilde("~/.passthru/macchina.json").to_string()) {
         return match serde_json::from_str::<serde_json::Value>(content.as_str()) {
             Ok(v) => v["COM-PORT"].as_str().map(String::from),
             Err(_) => None
@@ -79,21 +82,19 @@ impl MacchinaM2 {
 
 
     fn open_conn(port: &str) -> Result<Self> {
-
-        let settings = serialport::SerialPortSettings {
-            baud_rate: 115200,
-            data_bits: DataBits::Eight,
-            flow_control: FlowControl::Hardware,
-            parity: Parity::None,
-            stop_bits: StopBits::One,
-            timeout: std::time::Duration::from_millis(1)
-        };
-        let mut port = match serialport::open_with_settings(&port, &settings) {
+        let mut port = match serialport::new(port, 115200).open_native() {
             Ok(port) => port,
             Err(e) => {return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Error opening port {}", e.to_string())));}
         };
+        port.set_flow_control(FlowControl::Hardware).unwrap();
+        port.set_data_bits(DataBits::Eight).unwrap();
+        port.set_stop_bits(StopBits::One).unwrap();
+        port.set_parity(Parity::None).unwrap();
+        port.set_timeout(std::time::Duration::from_millis(0)).unwrap();
+        port.clear(ClearBuffer::All).unwrap();
+        println!("{:#?}", port);
 
-        let port_t = port.try_clone().unwrap();
+        let mut port_t = port.try_clone_native().unwrap();
 
         // Create our Rx queue for incomming messages
         let rx_queue = Arc::new(RwLock::new(HashMap::new()));
@@ -102,18 +103,31 @@ impl MacchinaM2 {
         // Set tell the thread to run by default
         let is_running = Arc::new(AtomicBool::new(true));
         let is_running_t = is_running.clone();
-
         // Since UNIX has a 4KB Page size, I want to store more data,
         // Use a 8KB Buffer
         let handler = Some(spawn(move || {
             let mut read_buffer: [u8; COMM_MSG_SIZE] = [0x00; COMM_MSG_SIZE];
-            let mut pos = 0;
             logger::info("M2 receiver thread starting!".to_string());
             let msg = COMM_MSG::new_with_args(MsgType::StatusMsg, &[0x01]);
-            port.write_all(&msg.to_slice()).unwrap();
+            port_t.write_all(&msg.to_slice()).unwrap();
             while is_running_t.load(Ordering::Relaxed) {
-                match port.read(&mut read_buffer[pos..]) {
+                let bytes = port_t.bytes_to_read().unwrap() as usize;
+                if bytes >= COMM_MSG_SIZE {
+                    println!("I have bytes {}!", bytes);
+                    port_t.read_exact(&mut read_buffer).unwrap();
+                    let msg = COMM_MSG::from_vec(&read_buffer);
+                    match msg.msg_type {
+                        MsgType::LogMsg => { logger::log_m2(String::from_utf8(Vec::from(msg.args)).unwrap()) },
+                        _ => {
+                            println!("Message with ID {}", msg.msg_id);
+                            rx_queue_t.write().unwrap().insert(msg.msg_id, msg);
+                        }
+                    }
+                }
+                /*
+                match port_t.read(&mut read_buffer[pos..]) {
                     Ok(size) => {
+                        println!("{}", size);
                         pos += size;
                         if pos == COMM_MSG_SIZE {
                             pos = 0;
@@ -128,21 +142,22 @@ impl MacchinaM2 {
                     }
                     Err(_) => {}
                 }
-                std::thread::sleep(std::time::Duration::from_millis(2));
+                */
+                std::thread::sleep(std::time::Duration::from_millis(5));
+
             }
             let msg = COMM_MSG::new_with_args(MsgType::StatusMsg, &[0x00]);
-            port.write_all(&msg.to_slice());
-            port.flush();
+            port_t.write_all(&msg.to_slice());
+            port_t.flush();
             logger::info("M2 receiver thread exiting".to_string());
         }));
 
         //while is_started.load(Ordering::Relaxed) == false {} // Wait for thread to start
-
         let m = MacchinaM2 {
             rx_queue,
             handler,
             is_running,
-            port: port_t
+            port: port
         };
         return Ok(m);
     }
@@ -150,15 +165,15 @@ impl MacchinaM2 {
     pub fn write_comm_struct(&mut self, mut s: COMM_MSG) {
         s.msg_id = 0x00; // Tell M2 it doesn't have to respond to request
         println!("OUT->{}", s);
-        self.port.write_all(&s.to_slice());
+        //self.port.write_all(&s.to_slice());
     }
 
     /// Writes a message to the M2 unit, and expects a designated response back from the unit
     pub fn write_and_read(&mut self, mut s: COMM_MSG, timeout_ms: u128) -> Option<COMM_MSG> {
         let query_id = get_id(); // Set a unique ID, M2 is now forced to respond
         s.msg_id = query_id;
-        self.port.write_all(&s.to_slice());
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        self.port.write_all(&s.to_slice()).unwrap();
+        self.port.flush();
         let start_time = std::time::Instant::now();
         while start_time.elapsed().as_millis() <= timeout_ms {
             if let Ok(mut lock) = self.rx_queue.write() {
@@ -169,7 +184,7 @@ impl MacchinaM2 {
             }
             std::thread::sleep(std::time::Duration::from_millis(2));
         }
-
+        println!("TIMEOUT");
         return None;
     }
 
