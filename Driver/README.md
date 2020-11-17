@@ -1,6 +1,7 @@
-# IMPORTANT
+# Building the driver
 
-You will need to install the nightly win32 toolchain of rust to compile this:
-```
-rustup default nightly-i686-pc-windows-msvc
-```
+## Windows
+run `.\build.bat`. This will build and install the driver, then will apply the necessary registry entries
+
+## Linux
+run `./build.sh`. This will build the driver and copy it, and the JSON to `~/.passthru/`

@@ -7,7 +7,6 @@ namespace PCCOMM {
 
     bool read_message(COMM_MSG *msg) {
         if(SerialUSB.available() > 0) { // Is there enough data in the buffer for
-
             // Calculate how many bytes to read (min of avaliable bytes, or left to read to complete the data)
             uint16_t maxRead = min(SerialUSB.available(), sizeof(COMM_MSG)-read_count);
             digitalWrite(DS7_BLUE, LOW);

@@ -31,7 +31,7 @@ fn get_id() -> u8 {
 }
 
 pub struct MacchinaM2 {
-    rx_queue: Arc<RwLock<HashMap<u8, COMM_MSG>>>,
+    rx_queue: Arc<Mutex<HashMap<u8, COMM_MSG>>>,
     handler: Option<JoinHandle<()>>,
     is_running: Arc<AtomicBool>,
     #[cfg(windows)]
@@ -82,22 +82,23 @@ impl MacchinaM2 {
 
 
     fn open_conn(port: &str) -> Result<Self> {
-        let mut port = match serialport::new(port, 115200).open_native() {
+        let mut p = match serialport::new(port, 115200).open_native() {
             Ok(port) => port,
             Err(e) => {return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Error opening port {}", e.to_string())));}
         };
-        port.set_flow_control(FlowControl::Hardware).unwrap();
-        port.set_data_bits(DataBits::Eight).unwrap();
-        port.set_stop_bits(StopBits::One).unwrap();
-        port.set_parity(Parity::None).unwrap();
-        port.set_timeout(std::time::Duration::from_millis(0)).unwrap();
-        port.clear(ClearBuffer::All).unwrap();
-        println!("{:#?}", port);
+        
+        p.set_timeout(std::time::Duration::from_millis(0));
+        p.set_flow_control(FlowControl::Hardware);
 
-        let mut port_t = port.try_clone_native().unwrap();
+        #[cfg(unix)]
+        {
+            p.clear(ClearBuffer::All);
+        }
+        let mut port = p;
+        let mut port_t = port.try_clone().unwrap();
 
         // Create our Rx queue for incomming messages
-        let rx_queue = Arc::new(RwLock::new(HashMap::new()));
+        let rx_queue = Arc::new(Mutex::new(HashMap::new()));
         let rx_queue_t = rx_queue.clone();
 
         // Set tell the thread to run by default
@@ -109,46 +110,52 @@ impl MacchinaM2 {
             let mut read_buffer: [u8; COMM_MSG_SIZE] = [0x00; COMM_MSG_SIZE];
             logger::info("M2 receiver thread starting!".to_string());
             let msg = COMM_MSG::new_with_args(MsgType::StatusMsg, &[0x01]);
-            port_t.write_all(&msg.to_slice()).unwrap();
+            port_t.write(&msg.to_slice()).unwrap();
+            let mut read_count = 0;
             while is_running_t.load(Ordering::Relaxed) {
-                let bytes = port_t.bytes_to_read().unwrap() as usize;
-                if bytes >= COMM_MSG_SIZE {
-                    println!("I have bytes {}!", bytes);
+                let incomming = port_t.bytes_to_read().unwrap_or(0) as usize;
+                if incomming > 0 {
+                    let btr: usize = std::cmp::min(incomming, COMM_MSG_SIZE-read_count);
+                    port_t.read_exact(&mut read_buffer[read_count..read_count+btr]).unwrap();
+                    read_count += btr;
+                    if read_count == COMM_MSG_SIZE {
+                        println!("I have message!");
+                        read_count = 0;
+                        let msg = COMM_MSG::from_vec(&read_buffer);
+                        read_buffer =[0x00; COMM_MSG_SIZE];
+                        match msg.msg_type {
+                            MsgType::LogMsg => { logger::log_m2(String::from_utf8(Vec::from(msg.args)).unwrap()) },
+                            _ => {
+                                println!("Message {}", msg);
+                                rx_queue_t.lock().unwrap().insert(msg.msg_id, msg);
+                            }
+                        }
+                    }
+                }
+
+                /*
+                let byte_count = {
+                    port_t.bytes_to_read().unwrap_or(0) as usize
+                };
+                println!("Byte count {}", byte_count);
+                if byte_count >= COMM_MSG_SIZE {
                     port_t.read_exact(&mut read_buffer).unwrap();
                     let msg = COMM_MSG::from_vec(&read_buffer);
                     match msg.msg_type {
                         MsgType::LogMsg => { logger::log_m2(String::from_utf8(Vec::from(msg.args)).unwrap()) },
                         _ => {
                             println!("Message with ID {}", msg.msg_id);
-                            rx_queue_t.write().unwrap().insert(msg.msg_id, msg);
+                            rx_queue_t.lock().unwrap().insert(msg.msg_id, msg);
                         }
                     }
-                }
-                /*
-                match port_t.read(&mut read_buffer[pos..]) {
-                    Ok(size) => {
-                        println!("{}", size);
-                        pos += size;
-                        if pos == COMM_MSG_SIZE {
-                            pos = 0;
-                            let msg = COMM_MSG::from_vec(&read_buffer);
-                            match msg.msg_type {
-                                MsgType::LogMsg => { logger::log_m2(String::from_utf8(Vec::from(msg.args)).unwrap()) },
-                                _ => {
-                                    rx_queue_t.write().unwrap().insert(msg.msg_id, msg);
-                                }
-                            }
-                        }
-                    }
-                    Err(_) => {}
                 }
                 */
-                std::thread::sleep(std::time::Duration::from_millis(5));
-
+               if incomming == 0 {
+                   std::thread::sleep(std::time::Duration::from_millis(5));
+               }
             }
             let msg = COMM_MSG::new_with_args(MsgType::StatusMsg, &[0x00]);
-            port_t.write_all(&msg.to_slice());
-            port_t.flush();
+            port_t.write(&msg.to_slice());
             logger::info("M2 receiver thread exiting".to_string());
         }));
 
@@ -172,17 +179,16 @@ impl MacchinaM2 {
     pub fn write_and_read(&mut self, mut s: COMM_MSG, timeout_ms: u128) -> Option<COMM_MSG> {
         let query_id = get_id(); // Set a unique ID, M2 is now forced to respond
         s.msg_id = query_id;
-        self.port.write_all(&s.to_slice()).unwrap();
-        self.port.flush();
+        self.port.write(&s.to_slice()).unwrap();
         let start_time = std::time::Instant::now();
         while start_time.elapsed().as_millis() <= timeout_ms {
-            if let Ok(mut lock) = self.rx_queue.write() {
+            if let Ok(mut lock) = self.rx_queue.lock() {
                 if lock.contains_key(&query_id) {
                     println!("READ -> DATA");
                     return lock.remove(&query_id);
                 }
             }
-            std::thread::sleep(std::time::Duration::from_millis(2));
+            std::thread::sleep(std::time::Duration::from_millis(5));
         }
         println!("TIMEOUT");
         return None;
@@ -200,7 +206,7 @@ impl Drop for MacchinaM2 {
     }
 }
 
-const COMM_MSG_SIZE: usize = 2048;
+const COMM_MSG_SIZE: usize = 4096;
 const COMM_MSG_ARG_SIZE: usize = COMM_MSG_SIZE - 4;
 
 #[derive(Debug, Copy, Clone)]
@@ -240,9 +246,6 @@ impl MsgType {
         }
     }
 }
-
-
-#[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]
 /// Comm message that is sent and received fro the M2 module
 pub struct COMM_MSG {
@@ -254,7 +257,7 @@ pub struct COMM_MSG {
 
 impl std::fmt::Display for COMM_MSG {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "MSG: ID: {:02X} TYPE={:?} - Args=[", self.msg_id, self.msg_type)?;
+        write!(f, "MSG: ID: {:02X} TYPE={:?} Size: {}- Args=[", self.msg_id, self.msg_type, self.arg_size)?;
         (0..self.arg_size).for_each(|b| {
             write!(f, "{:02X}", self.args[b as usize]).unwrap();
             if b < self.arg_size - 1 {
@@ -280,7 +283,7 @@ impl COMM_MSG {
         COMM_MSG {
             msg_id: buf[0],
             msg_type: MsgType::from_u8(buf[1]),
-            arg_size: ((buf[2] as u16) << 8) | buf[3] as u16,
+            arg_size: (buf[3] as u16) | buf[2] as u16,
             args,
         }
     }

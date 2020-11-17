@@ -15,14 +15,14 @@
 #define MSG_TEST 0x0FF
 
 // Reserve ~5Kb of memory for a temp buffer for reading and writing comm messages
-#define BUFFER_SIZE 2048
+#define BUFFER_SIZE 4096
 
 //
 struct __attribute__ ((packed)) COMM_MSG {
     uint8_t msg_id;
     uint8_t msg_type;
     uint16_t arg_size;
-    uint8_t args[2044];
+    uint8_t args[4092]; // 2044
 };
 
 namespace PCCOMM {
