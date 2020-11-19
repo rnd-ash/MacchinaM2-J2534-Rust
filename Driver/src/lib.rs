@@ -2,6 +2,7 @@ use libc::{c_char, c_long};
 use J2534Common::*;
 mod logger;
 mod comm;
+mod channels;
 use comm::{MacchinaM2};
 mod passthru_drv;
 use  passthru_drv::*;
@@ -38,12 +39,7 @@ pub extern "stdcall" fn PassThruConnect(
     BaudRate: u32,
     pChannelID: *mut u32,
 ) -> i32 {
-    let prot = Protocol::from_raw(ProtocolID);
-    logger::info(format!(
-        "PASSTHRU_CONNECT. Protocol: {:?}, Baudrate: {}",
-        prot, BaudRate
-    ));
-    PassthruError::STATUS_NOERROR as i32
+    passthru_connect(DeviceID, ProtocolID, Flags, BaudRate, pChannelID) as i32
 }
 
 #[no_mangle]
@@ -114,10 +110,10 @@ pub extern "stdcall" fn PassThruWriteMsgs(
         };
         let size = ptr.data_size;
         let data = &ptr.data[0..size as usize];
-        logger::info(format!(
+        logger::log_info(format!(
             "WRITE_MSGS. Protocol: {:?}, Data size: {} {:x?}. Timeout {} ms",
             prot, size, data, Timeout
-        ));
+        ).as_str());
     }
     PassthruError::STATUS_NOERROR as i32
 }
