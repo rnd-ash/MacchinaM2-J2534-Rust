@@ -17,22 +17,27 @@ lazy_static! {
 }
 
 /// Logs an info message
-pub fn info(msg: String) {
+pub fn log_debug(msg: &str) {
+    LOGGER.lock().unwrap().write_to_file(format!("[DEBUG] - {}", msg));
+}
+
+/// Logs an info message
+pub fn log_info(msg: &str) {
     LOGGER.lock().unwrap().write_to_file(format!("[INFO]  - {}", msg));
 }
 
 /// Logs a warn message
-pub fn warn(msg: String) {
+pub fn log_warn(msg: &str) {
     LOGGER.lock().unwrap().write_to_file(format!("[WARN]  - {}", msg));
 }
 
 /// Logs an error message
-pub fn error(msg: String) {
+pub fn log_error(msg: &str) {
     LOGGER.lock().unwrap().write_to_file(format!("[ERROR] - {}", msg));
 }
 
 /// Logs a message coming from the M2 unit itself
-pub fn log_m2(msg: String) {
+pub fn log_m2(msg: &str) {
     LOGGER.lock().unwrap().write_to_file(format!("[M2_LG] - {}", msg));
 }
 
