@@ -1,8 +1,12 @@
 #include "due_can.h"
 #include <M2_12VIO.h>
 #include "comm.h"
+#include "channel.h"
+#include "j2534_mini.h"
 
 #define FW_TEST
+
+#define FW_VERSION "0.0.1"
 
 CAN_FRAME input;
 M2_12VIO M2IO;
@@ -63,6 +67,13 @@ void set_status_led(uint8_t status) {
   }
 }
 
+void get_fw_version(COMM_MSG *msg) {
+  msg->arg_size = strlen(FW_VERSION)+1;
+  msg->args[0] = STATUS_NOERROR;
+  memcpy(&msg->args[1], FW_VERSION, sizeof(FW_VERSION));
+  PCCOMM::send_message(msg);
+}
+
 void loop() {
   if (PCCOMM::read_message(&msg)) {
     switch (msg.msg_type)
@@ -77,6 +88,12 @@ void loop() {
       break;
     case MSG_READ_BATT:
       send_v_batt(&msg);
+      break;
+    case MSG_OPEN_CHANNEL:
+      setup_channel(&msg);
+      break;
+    case MSG_GET_FW_VERSION:
+      get_fw_version(&msg);
       break;
     default:
       break;

@@ -1,5 +1,5 @@
 #include "comm.h"
-
+#include <HardwareSerial.h>
 
 namespace PCCOMM {
     char tempbuf[BUFFER_SIZE];
@@ -7,11 +7,10 @@ namespace PCCOMM {
 
     bool read_message(COMM_MSG *msg) {
         if(SerialUSB.available() > 0) { // Is there enough data in the buffer for
+            digitalWrite(DS7_BLUE, LOW);
             // Calculate how many bytes to read (min of avaliable bytes, or left to read to complete the data)
             uint16_t maxRead = min(SerialUSB.available(), sizeof(COMM_MSG)-read_count);
-            digitalWrite(DS7_BLUE, LOW);
             SerialUSB.readBytes(&tempbuf[read_count], maxRead);
-            digitalWrite(DS7_BLUE, HIGH);
             read_count += maxRead;
 
             // Size OK now, full payload received
@@ -19,7 +18,7 @@ namespace PCCOMM {
                 memcpy(msg, &tempbuf, sizeof(COMM_MSG));
                 read_count = 0;
                 memset(tempbuf, 0x00, sizeof(tempbuf)); // Reset buffer
-                //lastID = msg->msg_id; // Set this for response
+                digitalWrite(DS7_BLUE, HIGH);
                 return true;
             }
         }

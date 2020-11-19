@@ -12,6 +12,7 @@
 #define MSG_CHANNEL_DATA 0x04
 #define MSG_READ_BATT 0x05
 #define MSG_STATUS 0xAA // Args: [0] -> 0x00 = Goodbye, 0x01 = Hellow
+#define MSG_GET_FW_VERSION 0xAB
 #define MSG_TEST 0x0FF
 
 // Reserve ~5Kb of memory for a temp buffer for reading and writing comm messages
