@@ -15,7 +15,7 @@ pub trait Loggable {
 
 
 #[repr(u32)]
-#[derive(Debug, FromPrimitive, Deserialize, Serialize)]
+#[derive(Debug, Copy, Clone, FromPrimitive, Deserialize, Serialize)]
 #[allow(non_camel_case_types, dead_code)]
 pub enum Protocol {
     J1850VPW = 0x01,
@@ -52,7 +52,7 @@ impl Loggable for Protocol {
 }
 
 #[repr(u32)]
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 #[allow(non_camel_case_types, dead_code)]
 pub enum IoctlID {
     GET_CONFIG = 0x01,
@@ -71,7 +71,7 @@ pub enum IoctlID {
 }
 
 #[repr(u32)]
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 #[allow(non_camel_case_types, dead_code)]
 pub enum IoctlParam {
     DATA_RATE = 0x01,
@@ -116,7 +116,7 @@ pub enum IoctlParam {
 }
 
 #[repr(u32)]
-#[derive(Debug, PartialEq, FromPrimitive)]
+#[derive(Debug, Copy, Clone, PartialEq, FromPrimitive)]
 #[allow(non_camel_case_types, dead_code)]
 pub enum PassthruError {
     STATUS_NOERROR = 0x00,
@@ -189,7 +189,7 @@ impl Loggable for PassthruError {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 #[allow(non_camel_case_types, dead_code)]
 pub enum FilterType {
     PASS_FILTER = 0x01,
@@ -197,21 +197,21 @@ pub enum FilterType {
     FLOW_CONTROL_FILTER = 0x03,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 #[allow(non_camel_case_types, dead_code)]
 pub enum LoopBackSetting {
     OFF = 0x00,
     ON = 0x01,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 #[allow(non_camel_case_types, dead_code)]
 pub enum DataBits {
     DATA_BITS_8 = 0x00,
     DATA_BITS_7 = 0x01,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 #[allow(non_camel_case_types, dead_code)]
 pub enum ParitySetting {
     NO_PARITY = 0x00,
@@ -219,7 +219,7 @@ pub enum ParitySetting {
     EVEN_PARITY = 0x02,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 #[allow(non_camel_case_types, dead_code)]
 pub enum J1850PWMNetworkLine {
     BUS_NORMAL = 0x00,
@@ -227,7 +227,7 @@ pub enum J1850PWMNetworkLine {
     BUS_MINUS = 0x02,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 #[allow(non_camel_case_types, dead_code)]
 pub enum ConnectFlags {
     CAN_29BIT_ID = 0x00000100,
@@ -264,7 +264,7 @@ bitflags! {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 #[repr(C, packed(1))]
 pub struct PASSTHRU_MSG {
     pub protocol_id: u32,
@@ -276,21 +276,21 @@ pub struct PASSTHRU_MSG {
     pub data: [u8; 4128],
 }
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 #[repr(C, packed(1))]
 pub struct SBYTE_ARRAY {
     pub num_of_bytes: u32,
     pub byte_ptr: *const u8,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 #[repr(C, packed(1))]
 pub struct SConfig {
     pub parameter: u32,
     pub value: u32,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 #[repr(C, packed(1))]
 pub struct SConfigList {
     pub num_of_params: u32,
