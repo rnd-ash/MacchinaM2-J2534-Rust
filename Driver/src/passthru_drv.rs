@@ -5,13 +5,13 @@ use crate::logger;
 use crate::comm::*;
 use lazy_static::lazy_static;
 use std::sync::Mutex;
+use crate::channels::ChannelComm;
+use crate::logger::*;
 
 /// J2534 API Version supported - In this case 04.04
 const API_VERSION: &str = "04.04";
 /// DLL (Driver) version of this library
 const DLL_VERSION: &str = "0.1";
-/// Firmware version of the ODB2 hardware
-const FW_VERSION: &str = "0.1";
 
 lazy_static! {
     pub static ref LAST_ERROR_STR: Mutex<String> = Mutex::new(String::from(""));
@@ -28,12 +28,12 @@ const DEVICE_ID: u32 = 0x1234;
 
 fn copy_str_unsafe(dst: *mut c_char, src: &str) -> bool {
     if dst.is_null() {
-        logger::info(format!("Error copying '{}' - Source ptr is null", src));
+        logger::log_info(format!("Error copying '{}' - Source ptr is null", src).as_str());
         return false
     }
     match CString::new(src) {
         Err(_) => {
-            logger::info(format!("Error copying '{}' - CString creation failed", src));
+            logger::log_info(format!("Error copying '{}' - CString creation failed", src).as_str());
             false
         }
         Ok(x) => {
@@ -50,8 +50,21 @@ pub fn passthru_read_version(
     dll_version_ptr: *mut c_char,
     api_version_ptr: *mut c_char
 ) -> PassthruError {
+    let fw_version = run_on_m2(|dev| {
+        let msg = COMM_MSG::new(MsgType::GetFwVersion);
+        match dev.write_and_read_ptcmd(msg, 250) {
+            M2Resp::Ok(args) => { Ok(String::from_utf8(args).unwrap()) },
+            M2Resp::Err{status, string} => {
+                log_warn(format!("M2 failed to respond to FW_VERSION request: {}", string).as_str());
+                Err(status)   
+            }
+        }
+    });
+    if fw_version.is_err() {
+        return fw_version.unwrap_err();
+    }
 
-    if !copy_str_unsafe(fw_version_ptr, FW_VERSION) {
+    if !copy_str_unsafe(fw_version_ptr, fw_version.unwrap().as_str()) {
         set_error_string("FW Version copy failed".to_string());
         return PassthruError::ERR_FAILED
     }
@@ -75,7 +88,7 @@ pub fn passthru_get_last_error(dest: *mut c_char) -> PassthruError {
 
 
 pub fn passthru_open(device_id: *mut u32) -> PassthruError {
-    logger::info("PassthruOpen called".to_string());
+    logger::log_info("PassthruOpen called");
     if M2.read().unwrap().is_some() {
         return PassthruError::ERR_DEVICE_IN_USE;
     } else {
@@ -90,7 +103,7 @@ pub fn passthru_open(device_id: *mut u32) -> PassthruError {
                 return PassthruError::ERR_FAILED;
             }
             Err(x) => {
-                logger::error(format!("Cannot open com port. Error: {}", x));
+                logger::log_error(format!("Cannot open com port. Error: {}", x).as_str());
                 set_error_string(format!("COM Port open failed with error {}", x));
                 return PassthruError::ERR_DEVICE_NOT_CONNECTED
             }
@@ -99,7 +112,7 @@ pub fn passthru_open(device_id: *mut u32) -> PassthruError {
 }
 
 pub fn passthru_close(pDeviceID: u32) -> PassthruError {
-    logger::info(format!("PassthruClose called. Device ID: {}", pDeviceID));
+    logger::log_info(&format!("PassthruClose called. Device ID: {}", pDeviceID));
     // Device ID which isn't our device ID
     if pDeviceID != DEVICE_ID {
         return PassthruError::ERR_INVALID_DEVICE_ID
@@ -122,6 +135,34 @@ pub fn passthru_close(pDeviceID: u32) -> PassthruError {
     }
 }
 
+pub fn passthru_connect(device_id: u32, protocol_id: u32, flags: u32, baud_rate: u32, pChannelID: *mut u32) -> PassthruError {
+    if device_id != DEVICE_ID {
+        // Diagnostic Software messed up here. Not my device ID!
+        set_error_string(format!("Not M2s device ID. Expected {}, got {}", DEVICE_ID, device_id));
+        return PassthruError::ERR_DEVICE_NOT_CONNECTED;
+    }
+    if pChannelID.is_null() {
+        logger::log_error(&"Channel destination pointer is null!?".to_string());
+        PassthruError::ERR_NULL_PARAMETER;
+    }
+
+    match Protocol::from_raw(protocol_id) {
+        Some(protocol) => {
+            match ChannelComm::create_channel(protocol, baud_rate, flags) {
+                Ok(chan_id) => {
+                    unsafe { *pChannelID = chan_id };
+                    PassthruError::STATUS_NOERROR
+                },
+                Err(x) => x
+            }
+        },
+        None => {
+            logger::log_error(&format!("{} is not recognised as a valid protocol ID!", protocol_id));
+            PassthruError::ERR_INVALID_PROTOCOL_ID
+        }
+    }
+}
+
 pub fn passthru_ioctl(
     HandleID: u32,
     IoctlID: u32,
@@ -129,14 +170,14 @@ pub fn passthru_ioctl(
     pOutput: *mut libc::c_void,
 ) -> PassthruError {
     if IoctlID == J2534Common::IoctlID::READ_VBATT as u32 {
-        logger::info(format!("Getting voltage"));
+        logger::log_info(&format!("Getting voltage"));
         match get_batt_voltage() {
             None => {
-                logger::warn(format!("Error retreiving VBatt"));
+                logger::log_warn(&format!("Error retreiving VBatt"));
                 return PassthruError::ERR_FAILED;
             },
             Some(v) => {
-                logger::info(format!("Reported voltage: {}V", v));
+                logger::log_info(&format!("Reported voltage: {}V", v));
                 let output: &mut u32 = unsafe { &mut *(pOutput as *mut u32) };
                 *output = v;
                 return PassthruError::STATUS_NOERROR;
