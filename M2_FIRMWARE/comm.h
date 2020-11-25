@@ -17,19 +17,23 @@
 
 // Reserve ~5Kb of memory for a temp buffer for reading and writing comm messages
 #define BUFFER_SIZE 4096
+#define COMM_MSG_ARG_SIZE 4092
 
 //
 struct __attribute__ ((packed)) COMM_MSG {
     uint8_t msg_id;
     uint8_t msg_type;
     uint16_t arg_size;
-    uint8_t args[4092]; // 2044
+    uint8_t args[COMM_MSG_ARG_SIZE];
 };
 
 namespace PCCOMM {
     bool read_message(COMM_MSG *msg);
     void send_message(COMM_MSG *msg);
     void log_message(char* msg);
-};
+
+    void respond_ok(uint8_t op, uint8_t* args, uint16_t arg_size);
+    void respond_err(uint8_t op, uint8_t error_id, char* txt);
+}
 
 #endif

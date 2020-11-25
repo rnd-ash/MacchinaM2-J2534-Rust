@@ -17,8 +17,8 @@ mod tests {
             Ok(d) => {
                 if let Some(dev) =d {
                     match dev.write_and_read(send, 100) {
-                        Some(x) => assert!(x == send),
-                        None => panic!("Did not receive response!")
+                        Ok(x) => assert!(x == send),
+                        Err(_) => panic!("Did not receive response!")
                     }
                 }
             },
@@ -41,5 +41,37 @@ mod tests {
             println!("V: {}", v);
         }
         passthru_drv::passthru_close(dev);
+    }
+
+    #[test]
+    fn test_connect() {
+        let mut dev: u32 = 0;
+        let mut channel_id: u32 = 0;
+        assert!(passthru_drv::passthru_open(&mut dev) as i32 == PassthruError::STATUS_NOERROR as i32);
+
+        passthru_drv::passthru_connect(dev, Protocol::ISO15765 as u32, 0x0000, 500000, &mut channel_id);
+
+        passthru_drv::passthru_close(dev);
+    }
+
+    #[test]
+    fn test_fw_failure() {
+        let mut fw_version: [u8; 80] = [0; 80];
+        let mut dll_version: [u8; 80] = [0; 80];
+        let mut api_version: [u8; 80] = [0; 80];
+        assert_eq!(passthru_drv::passthru_read_version(fw_version.as_mut_ptr() as *mut i8, dll_version.as_mut_ptr() as *mut i8, api_version.as_mut_ptr() as *mut i8), PassthruError::ERR_DEVICE_NOT_CONNECTED);
+    }
+
+    #[test]
+    fn test_fw_ok() {
+        let mut dev: u32 = 0;
+        let mut fw_version: [u8; 80] = [0; 80];
+        let mut dll_version: [u8; 80] = [0; 80];
+        let mut api_version: [u8; 80] = [0; 80];
+        assert_eq!(passthru_drv::passthru_open(&mut dev), PassthruError::STATUS_NOERROR);
+        assert_eq!(passthru_drv::passthru_read_version(fw_version.as_mut_ptr() as *mut i8, dll_version.as_mut_ptr() as *mut i8, api_version.as_mut_ptr() as *mut i8), PassthruError::STATUS_NOERROR);
+        println!("FW VERSION {}", String::from_utf8(fw_version.to_vec()).unwrap());
+        println!("API VERSION {}", String::from_utf8(api_version.to_vec()).unwrap());
+        println!("DLL VERSION {}", String::from_utf8(dll_version.to_vec()).unwrap());
     }
 }

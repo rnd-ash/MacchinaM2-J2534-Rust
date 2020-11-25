@@ -1,26 +1,33 @@
 #include "channel.h"
 
-void respond_err(COMM_MSG *msg, uint8_t err, char* txt) {
-    msg->msg_type = MSG_OPEN_CHANNEL;
-    msg->arg_size = 1 + strlen(txt);
-    msg->args[0] = err;
-    memcpy(&msg->args[1], txt, strlen(txt));
-    PCCOMM::send_message(msg);
-}
+Channel* channels[MAX_CHANNELS] = {nullptr};
 
-void respond_ok(COMM_MSG *msg) {
-    msg->arg_size = 0x01;
-    msg->msg_type = MSG_OPEN_CHANNEL;
-    msg->args[0] = STATUS_NOERROR;
-    PCCOMM::send_message(msg);
+
+void create_channel(COMM_MSG *msg, int id, int protocol, int baud, int flags) {
+    if (id >= MAX_CHANNELS || id < 0) {
+        PCCOMM::respond_err(MSG_OPEN_CHANNEL, ERR_FAILED, "Channel ID out of range");
+    }
+    if (channels[id] != nullptr) {
+         PCCOMM::respond_err(MSG_OPEN_CHANNEL, ERR_CHANNEL_IN_USE, "Channel in use");
+    }
+    // Require CAN Interface
+    if (protocol == ISO15765 || protocol == CAN) {
+        Channel* created = CanChannelHandler::create_channel(id, protocol, baud, flags);
+        if (created != nullptr) {
+            channels[id] = created;
+        }
+        // If it is nullptr, due to error, the called function will report the error, so just return
+    }
 }
 
 void setup_channel(COMM_MSG* msg) {
     if (msg->msg_type != MSG_OPEN_CHANNEL) {
-        respond_err(msg, ERR_FAILED, "This is NOT a open channel msg!");
+        PCCOMM::respond_err(MSG_OPEN_CHANNEL, ERR_FAILED, "This is NOT a open channel msg!");
     }
     if (msg->arg_size != 16) {
-        respond_err(msg, ERR_FAILED, "Payload size for OpenChannel is incorrect");
+        char buf[65];
+        sprintf(buf, "Payload size for OpenChannel is incorrect. Want 16, got %d", msg->arg_size);
+        PCCOMM::respond_err(MSG_OPEN_CHANNEL, ERR_FAILED, buf);
     }
     unsigned int id;
     unsigned int protocol;
@@ -30,10 +37,23 @@ void setup_channel(COMM_MSG* msg) {
     memcpy(&protocol, &msg->args[4], 4);
     memcpy(&baud, &msg->args[8], 4);
     memcpy(&flags, &msg->args[12], 4);
+    if (channels[id] != nullptr) {
+        return PCCOMM::respond_err(MSG_OPEN_CHANNEL, ERR_CHANNEL_IN_USE, "Channel in use");
+    }
+
     switch (protocol)
     {
-        case ISO15765:
+        case ISO15765: {
+                Channel* chan = CanChannelHandler::create_channel(id, protocol, baud, flags);
+                if (chan != nullptr) { // Only handle positive case, if its negative, the setup function already returned the result
+                    channels[id] = chan;
+                    PCCOMM::respond_ok(MSG_OPEN_CHANNEL, nullptr, 0);
+                }
+            }
+            break;
         case CAN:
+            CanChannelHandler::create_channel(id, protocol, baud, flags);
+            break;
         case ISO9141:
         case ISO14230:
         case J1850PWM:
@@ -42,13 +62,79 @@ void setup_channel(COMM_MSG* msg) {
         case SCI_B_ENGINE:
         case SCI_A_TRANS:
         case SCI_B_TRANS:
-            respond_err(msg, ERR_NOT_SUPPORTED, "Protocol not implimented yet");
+            PCCOMM::respond_err(MSG_OPEN_CHANNEL, ERR_NOT_SUPPORTED, "Protocol not implimented yet");
             break;
         default:
-            respond_err(msg, ERR_INVALID_PROTOCOL_ID, "Unrecognised protocol");
+            char buf[35];
+            sprintf(buf, "Unrecognised protocol 0x%02X", msg->args[0]);
+            PCCOMM::respond_err(MSG_OPEN_CHANNEL, ERR_INVALID_PROTOCOL_ID, buf);
             break;
     }
 }
 
+namespace CanChannelHandler {
+    bool mailboxes_in_use[7] = {0x00};
+    int curr_baud = 0;
+    int channels_used = 0;
 
-int CanChannelhandler::curr_baud = 0;
+    int get_free_mailbox_id(bool is_ext) {
+        int start_idx = 4;
+        int end_idx = 7;
+        if (is_ext) {
+            start_idx = 0;
+            end_idx = 3;
+        }
+        for (int i = start_idx; i <= end_idx; i++) {
+            if (mailboxes_in_use[i] == false) { // Found a free mailbox!
+                return i;
+            }
+        }
+        return -1; // No mailbox found
+    }
+
+
+    Channel* create_channel(int id, int protocol, int baud, int flags) {
+        // Current baud is already set, but new channel wants another baud speed
+        // Not physically possible on the M2s-Hardware
+        if (curr_baud != 0 && baud != curr_baud) {
+            PCCOMM::respond_err(MSG_OPEN_CHANNEL, ERR_FAILED, "Cannot run multiple CAN baud speeds on 1 interface!");
+            return nullptr;
+        }
+        // Fresh start - init a new CAN interface
+        if (curr_baud == 0) {
+            PCCOMM::log_message("Setting up CAN0 interface!");
+            Can0.init(baud);
+        }
+        int mailbox_id = -1;
+        bool use_ext = false;
+        if (flags & CAN_29BIT_ID > 0) { // Channel uses 29bit CAN IDs!
+            mailbox_id = get_free_mailbox_id(true);
+            use_ext = true;
+        } else { // Channel uses standard 11bit CAN ID
+            mailbox_id = get_free_mailbox_id(false);
+        }
+
+        // Out of Rx mailboxes!
+        if (mailbox_id == -1) {
+            PCCOMM::respond_err(MSG_OPEN_CHANNEL, ERR_FAILED, "No more free CAN mailboxes");
+            return nullptr;
+        }
+
+        
+        
+        
+        if (protocol == ISO15765) {
+            // Create the channel, and set the mailbox as in use
+            digitalWrite(DS5, LOW);
+            mailboxes_in_use[mailbox_id] = true; // Mailbox is now in use
+            return new ISO15765_Channel(id, mailbox_id, use_ext);
+        } else if (protocol == CAN) {
+
+        } else {
+            PCCOMM::respond_err(MSG_OPEN_CHANNEL, ERR_FAILED, "CAN Channel request but protocolID did not match");
+            return nullptr;
+        }
+        PCCOMM::respond_err(MSG_OPEN_CHANNEL, ERR_FAILED, "Not completed");
+        return nullptr;
+    }
+}

@@ -28,7 +28,7 @@ impl ChannelComm {
                 ).and_then(|chan| {
                     // If channel creation OK, set it in the channel list
                     let idx = chan.id;
-                    channels[chan.id as usize] = Some(chan);
+                    channels[idx as usize] = Some(chan);
                     Ok(idx as u32) // Return the ID
                 })
             },
@@ -93,8 +93,12 @@ impl Channel {
         let msg = COMM_MSG::new_with_args(MsgType::OpenChannel, dst.as_mut_slice());
         run_on_m2(|dev |{
             match dev.write_and_read_ptcmd(msg, 100) {
-                M2Resp::Ok(_) => Ok(Self{id, protocol, baud_rate, flags}),
+                M2Resp::Ok(_) => {
+                    log_debug("M2 opened channel!");
+                    Ok(Self{id, protocol, baud_rate, flags})
+                },
                 M2Resp::Err{status, string} => {
+                    log_error(format!("M2 failed to open channel {} (Status {:?}): {}", id, status, string).as_str());
                     set_error_string(string);
                     Err(status)
                 }

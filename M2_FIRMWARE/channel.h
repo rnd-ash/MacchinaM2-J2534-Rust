@@ -1,27 +1,22 @@
+#ifndef CHANNEL_H_
+#define CHANNEL_H_
+
 #include <Arduino.h>
 #include "due_can.h"
 #include "comm.h"
 #include "j2534_mini.h"
+#include "comm_channel.h"
 
-void respond_err(COMM_MSG *msg, uint8_t err, char* txt);
-void respond_ok(COMM_MSG *msg);
+#define MAX_CHANNELS 10
+extern Channel* channels[MAX_CHANNELS];
+
 void setup_channel(COMM_MSG* msg);
 
-class CanChannel {
-    public:
-        CanChannel(int id, int flags);
+// Based on Rx mailboxes
+#define MAX_CAN_CHANNELS_EXT 3 // Rx boxes 0-3 are extended frames
+#define MAX_CAN_CHANNELS_STD 4 // Rx boxes 3-7 are standard frames
+namespace CanChannelHandler {
+    Channel* create_channel(int id, int protocol, int baud, int flags);
 };
 
-#define MAX_CAN_CHANNELS 3
-#define MAX_CAN_CHANNELS_EXT 4
-
-class CanChannelhandler {
-    public:
-        void new_channel(int id, int baud, int flags);
-    private:
-        static int curr_baud;
-        int channels_active_count = 0;
-        int channels_active_ext_count = 0;
-        CanChannel* active_channels[MAX_CAN_CHANNELS] = {nullptr};
-        CanChannel* active_channels_ext[MAX_CAN_CHANNELS_EXT] = {nullptr};
-};
+#endif

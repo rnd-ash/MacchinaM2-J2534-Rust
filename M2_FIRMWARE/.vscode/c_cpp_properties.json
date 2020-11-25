@@ -4,14 +4,25 @@
             "name": "Linux",
             "cStandard": "c11",
             "cppStandard": "c++14",
-            "intelliSenseMode": "gcc-x64",
+            "intelliSenseMode": "clang-x64",
             "includePath": [
+                "/home/ashcon/.arduino15/packages/arduino/tools/**",
+                "/home/ashcon/Arduino/libraries/**",
                 "${workspaceRoot}/**",
                 "/home/ashcon/.arduino15/packages/arduino/hardware/**",
+                "/home/ashcon/.arduino15/packages/arduino/hardware/sam/1.6.12/**",
+                "/home/ashcon/.arduino15/packages/macchina/hardware/sam/0.3.13/libraries/**",
+                "/home/ashcon/.arduino15/packages/macchina/hardware/sam/0.3.13/variants/**",
                 "/home/ashcon/.arduino15/packages/macchina/hardware/sam/0.3.13/**",
-                "/home/ashcon/.arduino15/packages/macchina/hardware/sam/0.3.13/variants/m2/*",
+                "/usr/bin/libraries/**"
             ],
-            "forcedInclude": [],
+            "forcedInclude": [
+                "/home/ashcon/.arduino15/packages/macchina/hardware/sam/0.3.13/variants/m2/variant.h"
+            ],
+            "browse": {
+                "limitSymbolsToIncludedHeaders": true,
+                "databaseFilename": ""
+            },
             "defines": [
                 "USBCON",
                 "ARDUINO_AVR_UNO",

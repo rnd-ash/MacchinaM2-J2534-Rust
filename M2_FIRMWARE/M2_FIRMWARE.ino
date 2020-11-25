@@ -1,8 +1,8 @@
 #include "due_can.h"
 #include <M2_12VIO.h>
 #include "comm.h"
-#include "channel.h"
 #include "j2534_mini.h"
+#include "channel.h"
 
 #define FW_TEST
 
@@ -49,18 +49,16 @@ float getVoltage() {
 COMM_MSG msg = {0x00};
 CAN_FRAME f;
 
-void send_v_batt(COMM_MSG *msg) {
-  msg->arg_size = 4;
-  msg->msg_type = MSG_READ_BATT;
+void send_v_batt() {
   unsigned long v_batt = getVoltage() * 1000;
-  memcpy(&msg->args[0], &v_batt, 4);
-  PCCOMM::send_message(msg);
+  PCCOMM::respond_ok(MSG_READ_BATT, (uint8_t*)(&v_batt), 4);
 }
 
 void set_status_led(uint8_t status) {
   if (status == 0x00) {
     digitalWrite(DS6, HIGH); // Green Off
     digitalWrite(DS2, LOW); // Red On
+    // TODO Reset M2 to default state when we disconnect
   } else {
     digitalWrite(DS6, LOW); // Green On
     digitalWrite(DS2, HIGH); // Red Off
@@ -68,10 +66,7 @@ void set_status_led(uint8_t status) {
 }
 
 void get_fw_version(COMM_MSG *msg) {
-  msg->arg_size = strlen(FW_VERSION)+1;
-  msg->args[0] = STATUS_NOERROR;
-  memcpy(&msg->args[1], FW_VERSION, sizeof(FW_VERSION));
-  PCCOMM::send_message(msg);
+  PCCOMM::respond_ok(MSG_GET_FW_VERSION, (uint8_t*)&FW_VERSION, strlen(FW_VERSION));
 }
 
 void loop() {
@@ -87,7 +82,7 @@ void loop() {
       set_status_led(msg.args[0]);
       break;
     case MSG_READ_BATT:
-      send_v_batt(&msg);
+      send_v_batt();
       break;
     case MSG_OPEN_CHANNEL:
       setup_channel(&msg);

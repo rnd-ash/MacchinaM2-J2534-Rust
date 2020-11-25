@@ -59,18 +59,16 @@ impl Logger {
         }
         println!("{}", txt);
 
-        /*
         let mut ops = std::fs::OpenOptions::new()
             .write(true)
             .append(true)
-            .create(true)
+            .create(false)
             .open(LOG_PATH)
             .unwrap();
 
         if let Err(e) = writeln!(ops, "{}", txt) {
             eprintln!("WRITE ERROR! [{}] - '{}'", e, txt);
         }
-        */
         // Mutex gets unlocked at end of scope
     }
 

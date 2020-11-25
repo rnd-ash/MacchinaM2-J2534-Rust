@@ -1,7 +1,10 @@
 #include "comm.h"
 #include <HardwareSerial.h>
 
+
+
 namespace PCCOMM {
+    uint8_t last_id = 0;
     char tempbuf[BUFFER_SIZE];
     uint16_t read_count = 0;
 
@@ -18,6 +21,9 @@ namespace PCCOMM {
                 memcpy(msg, &tempbuf, sizeof(COMM_MSG));
                 read_count = 0;
                 memset(tempbuf, 0x00, sizeof(tempbuf)); // Reset buffer
+                if (msg->msg_id != 0x00) {
+                    last_id = msg->msg_id;
+                }
                 digitalWrite(DS7_BLUE, HIGH);
                 return true;
             }
@@ -32,11 +38,33 @@ namespace PCCOMM {
         digitalWrite(DS7_RED, HIGH);
     }
 
+    // This is used for log_message, respond_ok and respond_err
+    COMM_MSG res = {0x00};
+
     void log_message(char* msg) {
-        COMM_MSG res = {0x00};
         res.msg_type = MSG_LOG;
-        res.arg_size = min(strlen(msg), 2045);
+        res.arg_size = min(strlen(msg), 4095);
         memcpy(&res.args[0], msg, res.arg_size);
+        send_message(&res);
+    }
+
+    void respond_ok(uint8_t op, uint8_t* args, uint16_t arg_size) {
+        res.msg_type = op;
+        res.arg_size = 1 + arg_size;
+        res.msg_id = last_id;
+        res.args[0] = 0x00; // STATUS_NOERROR
+        if (arg_size != 0) {
+            memcpy(&res.args[1], args, min(arg_size, COMM_MSG_ARG_SIZE));
+        }
+        send_message(&res);
+    }
+
+    void respond_err(uint8_t op, uint8_t error_id, char* txt) {
+        res.msg_type = op;
+        res.arg_size = 1 + strlen(txt);
+        res.args[0] = error_id;
+        res.msg_id = last_id;
+        memcpy(&res.args[1], txt, strlen(txt));
         send_message(&res);
     }
 }

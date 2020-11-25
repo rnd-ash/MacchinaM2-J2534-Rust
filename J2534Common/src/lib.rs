@@ -227,13 +227,28 @@ pub enum J1850PWMNetworkLine {
     BUS_MINUS = 0x02,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, FromPrimitive)]
 #[allow(non_camel_case_types, dead_code)]
 pub enum ConnectFlags {
     CAN_29BIT_ID = 0x00000100,
     ISO9141_NO_CHECKSUM = 0x00000200,
     CAN_ID_BOTH = 0x00000800,
     ISO9141_K_LINE_ONLY = 0x00001000,
+}
+impl Loggable for ConnectFlags {
+    fn to_string(&self) -> &str {
+        match &self {
+            ConnectFlags::CAN_29BIT_ID => "CAN ID 29Bit",
+            ConnectFlags::ISO9141_NO_CHECKSUM => "ISO9141 no checksum",
+            ConnectFlags::CAN_ID_BOTH => "unknown",
+            ConnectFlags::ISO9141_K_LINE_ONLY => "ISO9141 only use K-Line"
+        }
+    }
+
+    fn from_raw(x: u32) -> Option<Self>
+        where Self: Sized {
+        FromPrimitive::from_u32(x)
+    }
 }
 
 bitflags! {

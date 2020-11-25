@@ -1,3 +1,6 @@
+#ifndef J2534_MINI_H_
+#define J2534_MINI_H_
+
 // Just stores relivant J2534 values to channels and IOCTL commands
 
 // Protocols
@@ -40,3 +43,11 @@
 #define		ERR_NOT_UNIQUE			  0x18	// An existing filter already matches this header or node identifier.
 #define		ERR_INVALID_BAUDRATE	  0x19	// Unable to honor requested Baud rate within required tolerances.
 #define		ERR_INVALID_DEVICE_ID	  0x1A	// PassThru device identifier is not recognized.
+
+// Some useful flags (Channel creation)
+#define		CAN_29BIT_ID		0x00000100
+#define		ISO9141_NO_CHECKSUM	0x00000200
+#define		CAN_ID_BOTH		    0x00000800
+#define		ISO9141_K_LINE_ONLY	0x00001000
+
+#endif

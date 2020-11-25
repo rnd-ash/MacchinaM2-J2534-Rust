@@ -9,8 +9,8 @@ use std::num::Wrapping;
 use std::collections::hash_map::HashMap;
 use crate::logger;
 use J2534Common::{PassthruError, Loggable};
-use byteorder::{LittleEndian, ByteOrder};
 use crate::passthru_drv::set_error_string;
+use byteorder::{ByteOrder, WriteBytesExt, LittleEndian};
 
 #[cfg(unix)]
 use serde_json;
@@ -154,7 +154,7 @@ impl MacchinaM2 {
                         match msg.msg_type {
                             MsgType::LogMsg => { logger::log_m2(String::from_utf8(Vec::from(msg.args)).unwrap().as_str()) },
                             _ => {
-                                println!("Message {}", msg);
+                                logger::log_debug(format!("Read message: {}", &msg).as_str());
                                 rx_queue_t.lock().unwrap().insert(msg.msg_id, msg);
                             }
                         }
@@ -188,11 +188,16 @@ impl MacchinaM2 {
         println!("OUT->{}", s);
     }
 
-    pub fn write_and_read_ptcmd(&mut self, mut s: COMM_MSG, timeout_ms: u128) -> M2Resp {
+    pub fn write_and_read_ptcmd(&mut self, s: COMM_MSG, timeout_ms: u128) -> M2Resp {
         match self.write_and_read(s, timeout_ms) {
-            None => M2Resp::Err { status: PassthruError::ERR_TIMEOUT, string: format!("M2 did not replay after {} ms", timeout_ms) },
-            Some(resp) => {
-                let status = PassthruError::from_raw(resp.args[0] as u32).unwrap();
+            Err(e) => M2Resp::Err { status: e, string: format!("M2 communication failure: {:?} ms", e) },
+            Ok(resp) => {
+                let status = match PassthruError::from_raw(resp.args[0] as u32) {
+                    Some(x) => x,
+                    None => {
+                        return M2Resp::Err{ status: PassthruError::ERR_FAILED, string: format!("Unrecognised status {}", resp.args[0]) }
+                    }
+                };
                 match status {
                     PassthruError::STATUS_NOERROR => {
                         match resp.arg_size {
@@ -214,22 +219,24 @@ impl MacchinaM2 {
     }
 
     /// Writes a message to the M2 unit, and expects a designated response back from the unit
-    pub fn write_and_read(&mut self, mut s: COMM_MSG, timeout_ms: u128) -> Option<COMM_MSG> {
+    pub fn write_and_read(&mut self, mut s: COMM_MSG, timeout_ms: u128) -> PTResult<COMM_MSG> {
         let query_id = get_id(); // Set a unique ID, M2 is now forced to respond
         s.msg_id = query_id;
-        self.port.write_all(&s.to_slice()).unwrap();
+        if self.port.write_all(&s.to_slice()).is_err() {
+            return Err(PassthruError::ERR_DEVICE_NOT_CONNECTED)
+        }
+        logger::log_debug(format!("Write data: {}", &s).as_str());
         let start_time = std::time::Instant::now();
         while start_time.elapsed().as_millis() <= timeout_ms {
             if let Ok(mut lock) = self.rx_queue.lock() {
                 if lock.contains_key(&query_id) {
-                    println!("READ -> DATA");
-                    return lock.remove(&query_id);
+                    return Ok(lock.remove(&query_id).unwrap());
                 }
             }
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
         println!("TIMEOUT");
-        return None;
+        return Err(PassthruError::ERR_TIMEOUT);
     }
 
     pub fn stop(&mut self) {
@@ -276,6 +283,8 @@ impl MsgType {
             0x03 => MsgType::CloseChannel,
             0x04 => MsgType::ChannelData,
             0x05 => MsgType::ReadBatt,
+            0xAA => MsgType::StatusMsg,
+            0xAB => MsgType::GetFwVersion,
             #[cfg(test)]
             0xFF => MsgType::TestMessage,
             _ => {
@@ -296,8 +305,8 @@ pub struct COMM_MSG {
 
 impl std::fmt::Display for COMM_MSG {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "COMM_MSG: ID: {:02X} TYPE: {:?}, Args=[", self.msg_id, self.msg_type)?;
-        (0..self.arg_size).for_each(|b| {
+        write!(f, "COMM_MSG: ID: {:02X} Type: {:?}, Size: {} Args=[", self.msg_id, self.msg_type, self.arg_size)?;
+        (0..std::cmp::min(self.arg_size, COMM_MSG_ARG_SIZE as u16)).for_each(|b| {
             write!(f, "{:02X}", self.args[b as usize]).unwrap();
             if b < self.arg_size - 1 {
                 write!(f, " ").unwrap();
@@ -322,7 +331,7 @@ impl COMM_MSG {
         COMM_MSG {
             msg_id: buf[0],
             msg_type: MsgType::from_u8(buf[1]),
-            arg_size: (buf[3] as u16) | buf[2] as u16,
+            arg_size: LittleEndian::read_u16(&buf[2..4]),
             args,
         }
     }
@@ -362,36 +371,25 @@ impl COMM_MSG {
         self.msg_type = msg_type;
     }
 
-    pub fn to_slice(&self) -> [u8; COMM_MSG_SIZE] {
-        let mut msg: [u8; COMM_MSG_SIZE] = [0x00; COMM_MSG_SIZE];
-        msg[0] = self.msg_id;
-        msg[1] = self.msg_type as u8;
-        msg[2] = ((self.arg_size >> 8) & 0xFF) as u8;
-        msg[3] = (self.arg_size & 0xFF) as u8;
-
-        (0..COMM_MSG_ARG_SIZE).for_each(|i| {
-            msg[i + 4] = self.args[i];
-        });
-        return msg;
+    pub fn to_slice(&self) -> Vec<u8> {
+        let mut params: Vec<u8> = Vec::with_capacity(COMM_MSG_SIZE);
+        params.push(self.msg_id); // 0
+        params.push(self.msg_type as u8); // 1
+        params.write_u16::<LittleEndian>(self.arg_size).unwrap(); // 2,3
+        params.append(&mut self.args.to_vec());
+        logger::log_debug(format!("Size: {}", params.len()).as_str());
+        return params;
     }
 }
 
-pub fn get_batt_voltage() -> Option<u32> {
+pub fn get_batt_voltage() -> PTResult<u32> {
     let msg = COMM_MSG::new(MsgType::ReadBatt);
-    if let Ok(opt) = M2.write().as_deref_mut() {
-        match opt {
-            Some(device) => {
-                if let Some(resp) = device.write_and_read(msg, 250) {
-                    if resp.msg_type == MsgType::ReadBatt {
-                        return Some(byteorder::LittleEndian::read_u32(&resp.args));
-                    }
-                }
-                return None
-            },
-            None => return None
+    run_on_m2(|dev| {
+        match dev.write_and_read_ptcmd(msg, 250) {
+            M2Resp::Ok(args) => Ok(byteorder::LittleEndian::read_u32(&args)),
+            M2Resp::Err{status, string} => Err(status)
         }
-    }
-    None
+    })
 }
 
 
@@ -424,8 +422,8 @@ mod comm_test {
                 .collect();
             let msg = COMM_MSG::new_with_args(MsgType::TestMessage, &args);
             match macchina.write_and_read(msg, 250) {
-                None => rec_fail += 1, // Macchina did not respond to our message
-                Some(x) => {
+                Err(_) => rec_fail += 1, // Macchina did not respond to our message
+                Ok(x) => {
                     // Macchina responded!
                     if x != msg {
                         // Check if received payload == sent payload
@@ -438,4 +436,15 @@ mod comm_test {
         assert!(tx_errors == 0);
         assert!(rec_fail == 0);
     }
+}
+
+#[test]
+fn test_comm_msg() {
+    let mut msg = COMM_MSG::new_with_args(MsgType::GetFwVersion, &[0x01 as u8, 0x02 as u8, 0x03 as u8]);
+    msg.msg_id = 0x01;
+    let data = msg.to_slice();
+    println!("{:02X?}", data);
+    let parsed = COMM_MSG::from_vec(data.as_slice());
+    println!("{}", msg);
+    println!("{}", parsed);
 }

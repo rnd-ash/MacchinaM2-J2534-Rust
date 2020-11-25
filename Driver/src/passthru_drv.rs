@@ -172,11 +172,11 @@ pub fn passthru_ioctl(
     if IoctlID == J2534Common::IoctlID::READ_VBATT as u32 {
         logger::log_info(&format!("Getting voltage"));
         match get_batt_voltage() {
-            None => {
+            Err(code) => {
                 logger::log_warn(&format!("Error retreiving VBatt"));
-                return PassthruError::ERR_FAILED;
+                return code;
             },
-            Some(v) => {
+            Ok(v) => {
                 logger::log_info(&format!("Reported voltage: {}V", v));
                 let output: &mut u32 = unsafe { &mut *(pOutput as *mut u32) };
                 *output = v;
