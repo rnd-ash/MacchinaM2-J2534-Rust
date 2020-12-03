@@ -9,8 +9,11 @@
 #define MSG_LOG 0x01
 #define MSG_OPEN_CHANNEL 0x02  //[ID, Baud, Baud, Protocol]
 #define MSG_CLOSE_CHANNEL 0x03
-#define MSG_CHANNEL_DATA 0x04
-#define MSG_READ_BATT 0x05
+#define MSG_SET_CHAN_FILT 0x04  //[ID, Baud, Baud, Protocol]
+#define MSG_REM_CHAN_FILT 0x05
+#define MSG_TX_CHAN_DATA 0x06
+#define MSG_RX_CHAN_DATA 0x07
+#define MSG_READ_BATT 0x08
 #define MSG_STATUS 0xAA // Args: [0] -> 0x00 = Goodbye, 0x01 = Hellow
 #define MSG_GET_FW_VERSION 0xAB
 #define MSG_TEST 0x0FF

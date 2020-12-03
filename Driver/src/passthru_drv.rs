@@ -163,6 +163,13 @@ pub fn passthru_connect(device_id: u32, protocol_id: u32, flags: u32, baud_rate:
     }
 }
 
+pub fn passthru_disconnect(channel_id: u32) -> PassthruError {
+    match ChannelComm::destroy_channel(channel_id as i32) {
+        Ok(_) => PassthruError::STATUS_NOERROR,
+        Err(e) => e
+    }
+}
+
 pub fn passthru_ioctl(
     HandleID: u32,
     IoctlID: u32,

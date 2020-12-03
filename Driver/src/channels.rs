@@ -107,7 +107,20 @@ impl Channel {
     }
 
     pub fn destroy(&mut self) -> Result<()> {
-        Ok(())
+        log_debug(format!("Requesting channel destroy. ID: {}", self.id).as_str());
+        let mut dst: Vec<u8> = Vec::new();
+        dst.write_u32::<LittleEndian>(self.id).unwrap();
+        let msg = COMM_MSG::new_with_args(MsgType::CloseChannel, dst.as_mut_slice());
+        run_on_m2(|dev |{
+            match dev.write_and_read_ptcmd(msg, 100) {
+                M2Resp::Ok(_) => Ok(()),
+                M2Resp::Err{status, string} => {
+                    log_error(format!("M2 failed to close channel {} (Status {:?}): {}", self.id, status, string).as_str());
+                    set_error_string(string);
+                    Err(status)
+                }
+            }
+        })
     }
 }
 

@@ -147,7 +147,6 @@ impl MacchinaM2 {
                     port_t.read_exact(&mut read_buffer[read_count..read_count+btr]).unwrap();
                     read_count += btr;
                     if read_count == COMM_MSG_SIZE {
-                        println!("I have message!");
                         read_count = 0;
                         let msg = COMM_MSG::from_vec(&read_buffer);
                         read_buffer =[0x00; COMM_MSG_SIZE];
@@ -260,9 +259,11 @@ pub enum MsgType {
     LogMsg = 0x01,
     OpenChannel = 0x02,
     CloseChannel = 0x03,
-    ChannelData = 0x04,
-    ReadBatt = 0x05,
-
+    SetChannelFilter = 0x04,
+    RemoveChannelFilter = 0x05,
+    TransmitChannelData = 0x06,
+    ReceiveChannelData = 0x07,
+    ReadBatt = 0x08,
     StatusMsg = 0xAA,
     GetFwVersion = 0xAB,
     #[cfg(test)]
@@ -281,8 +282,11 @@ impl MsgType {
             0x01 => MsgType::LogMsg,
             0x02 => MsgType::OpenChannel,
             0x03 => MsgType::CloseChannel,
-            0x04 => MsgType::ChannelData,
-            0x05 => MsgType::ReadBatt,
+            0x04 => MsgType::SetChannelFilter,
+            0x05 => MsgType::RemoveChannelFilter,
+            0x06 => MsgType::TransmitChannelData,
+            0x07 => MsgType::ReceiveChannelData,
+            0x08 => MsgType::ReadBatt,
             0xAA => MsgType::StatusMsg,
             0xAB => MsgType::GetFwVersion,
             #[cfg(test)]

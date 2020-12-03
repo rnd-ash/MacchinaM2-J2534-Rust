@@ -2,24 +2,6 @@
 
 Channel* channels[MAX_CHANNELS] = {nullptr};
 
-
-void create_channel(COMM_MSG *msg, int id, int protocol, int baud, int flags) {
-    if (id >= MAX_CHANNELS || id < 0) {
-        PCCOMM::respond_err(MSG_OPEN_CHANNEL, ERR_FAILED, "Channel ID out of range");
-    }
-    if (channels[id] != nullptr) {
-         PCCOMM::respond_err(MSG_OPEN_CHANNEL, ERR_CHANNEL_IN_USE, "Channel in use");
-    }
-    // Require CAN Interface
-    if (protocol == ISO15765 || protocol == CAN) {
-        Channel* created = CanChannelHandler::create_channel(id, protocol, baud, flags);
-        if (created != nullptr) {
-            channels[id] = created;
-        }
-        // If it is nullptr, due to error, the called function will report the error, so just return
-    }
-}
-
 void setup_channel(COMM_MSG* msg) {
     if (msg->msg_type != MSG_OPEN_CHANNEL) {
         PCCOMM::respond_err(MSG_OPEN_CHANNEL, ERR_FAILED, "This is NOT a open channel msg!");
@@ -72,10 +54,50 @@ void setup_channel(COMM_MSG* msg) {
     }
 }
 
+void remove_channel(COMM_MSG *msg) {
+    if (msg->msg_type != MSG_CLOSE_CHANNEL) {
+        PCCOMM::respond_err(MSG_CLOSE_CHANNEL, ERR_FAILED, "This is NOT a close channel msg!");
+    }
+    if (msg->arg_size != 4) {
+        char buf[65];
+        sprintf(buf, "Payload size for OpenChannel is incorrect. Want 4, got %d", msg->arg_size);
+        PCCOMM::respond_err(MSG_CLOSE_CHANNEL, ERR_FAILED, buf);
+    }
+    unsigned int id;
+    memcpy(&id, &msg->args[0], 4);
+    if (channels[id] == nullptr) {
+        PCCOMM::respond_err(MSG_CLOSE_CHANNEL, ERR_INVALID_CHANNEL_ID, "Non existant channel");
+    } else {
+        channels[id]->remove();
+        delete channels[id];
+        channels[id] = nullptr;
+        PCCOMM::respond_ok(MSG_CLOSE_CHANNEL, nullptr, 0);
+    }
+}
+
+void reset_all_channels() {
+    for (int i = 0; i < MAX_CHANNELS; i++) {
+        if (channels[i] != nullptr) {
+            channels[i]->remove();
+            delete channels[i];
+            channels[i] = nullptr;
+        }
+    }
+    CanChannelHandler::resetCanInterface(); // Reset the CAN Iface on M2
+}
+
+void channel_loop() {
+    for (int i = 0; i < MAX_CHANNELS; i++) {
+        if (channels[i] != nullptr) {
+            channels[i]->update();
+        }
+    }
+}
+
+
 namespace CanChannelHandler {
     bool mailboxes_in_use[7] = {0x00};
     int curr_baud = 0;
-    int channels_used = 0;
 
     int get_free_mailbox_id(bool is_ext) {
         int start_idx = 4;
@@ -104,6 +126,8 @@ namespace CanChannelHandler {
         if (curr_baud == 0) {
             PCCOMM::log_message("Setting up CAN0 interface!");
             Can0.init(baud);
+            // Also set all mailboxes to reject all frames, once a channel is set up
+            // it then can set up its own Rx mailbox
         }
         int mailbox_id = -1;
         bool use_ext = false;
@@ -136,5 +160,14 @@ namespace CanChannelHandler {
         }
         PCCOMM::respond_err(MSG_OPEN_CHANNEL, ERR_FAILED, "Not completed");
         return nullptr;
+    }
+
+    void resetCanInterface() {
+        Can0.disable();
+        curr_baud = 0;
+        for (int i = 0; i < MAX_CAN_CHANNELS_EXT+MAX_CAN_CHANNELS_STD; i++) {
+            mailboxes_in_use[i] = false;
+        }
+        digitalWrite(DS5, HIGH);
     }
 }

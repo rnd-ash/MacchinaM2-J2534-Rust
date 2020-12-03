@@ -45,7 +45,7 @@ pub extern "stdcall" fn PassThruConnect(
 #[no_mangle]
 #[allow(non_snake_case)]
 pub extern "stdcall" fn PassThruDisconnect(ChannelID: u32) -> i32 {
-    PassthruError::STATUS_NOERROR as i32
+    passthru_disconnect(ChannelID) as i32
 }
 
 #[no_mangle]

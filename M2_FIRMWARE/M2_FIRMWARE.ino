@@ -58,6 +58,7 @@ void set_status_led(uint8_t status) {
   if (status == 0x00) {
     digitalWrite(DS6, HIGH); // Green Off
     digitalWrite(DS2, LOW); // Red On
+    reset_all_channels();
     // TODO Reset M2 to default state when we disconnect
   } else {
     digitalWrite(DS6, LOW); // Green On
@@ -87,6 +88,9 @@ void loop() {
     case MSG_OPEN_CHANNEL:
       setup_channel(&msg);
       break;
+    case MSG_CLOSE_CHANNEL:
+      remove_channel(&msg);
+      break;
     case MSG_GET_FW_VERSION:
       get_fw_version(&msg);
       break;
@@ -94,5 +98,6 @@ void loop() {
       break;
     }
   }
+  channel_loop();
 }
  
