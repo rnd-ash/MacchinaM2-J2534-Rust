@@ -5,25 +5,37 @@
 
 namespace PCCOMM {
     uint8_t last_id = 0;
-    char tempbuf[BUFFER_SIZE];
+    char* tempbuf;
     uint16_t read_count = 0;
-
+    bool isReadingMsg = false;
+    uint16_t read_target = 0;
     bool read_message(COMM_MSG *msg) {
-        if(SerialUSB.available() > 0) { // Is there enough data in the buffer for
+        if (!isReadingMsg && SerialUSB.available() >= 2) { // Starter of payload
             digitalWrite(DS7_BLUE, LOW);
+            isReadingMsg = true;
+            read_count = 0;
+            char buf[2];
+            SerialUSB.readBytes(buf, 2);
+            memcpy(&read_target, buf, 2);
+            tempbuf = new char[read_target];
+            return false;
+        } else if(SerialUSB.available() > 0) { // Just reading data
             // Calculate how many bytes to read (min of avaliable bytes, or left to read to complete the data)
-            uint16_t maxRead = min(SerialUSB.available(), sizeof(COMM_MSG)-read_count);
+            uint16_t maxRead = min(SerialUSB.available(), read_target-read_count);
             SerialUSB.readBytes(&tempbuf[read_count], maxRead);
             read_count += maxRead;
 
             // Size OK now, full payload received
-            if(read_count == sizeof(COMM_MSG)) {
-                memcpy(msg, &tempbuf, sizeof(COMM_MSG));
-                read_count = 0;
-                memset(tempbuf, 0x00, sizeof(tempbuf)); // Reset buffer
+            if(read_count == read_target) {
+                msg->arg_size = read_target - 2;
+                isReadingMsg = false;
+                msg->msg_id = tempbuf[0];
+                msg->msg_type = tempbuf[1];
+                memcpy(msg->args, &tempbuf[2], msg->arg_size);
                 if (msg->msg_id != 0x00) {
                     last_id = msg->msg_id;
                 }
+                delete[] tempbuf;
                 digitalWrite(DS7_BLUE, HIGH);
                 return true;
             }

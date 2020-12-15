@@ -376,12 +376,11 @@ impl COMM_MSG {
     }
 
     pub fn to_slice(&self) -> Vec<u8> {
-        let mut params: Vec<u8> = Vec::with_capacity(COMM_MSG_SIZE);
-        params.push(self.msg_id); // 0
-        params.push(self.msg_type as u8); // 1
-        params.write_u16::<LittleEndian>(self.arg_size).unwrap(); // 2,3
-        params.append(&mut self.args.to_vec());
-        logger::log_debug(format!("Size: {}", params.len()).as_str());
+        let mut params: Vec<u8> = Vec::with_capacity(self.arg_size as usize + 4);
+        params.write_u16::<LittleEndian>(self.arg_size+2).unwrap(); // 0,1
+        params.push(self.msg_id); // 2
+        params.push(self.msg_type as u8); // 3
+        params.append(&mut self.args[0..self.arg_size as usize].to_vec());
         return params;
     }
 }
