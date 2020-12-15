@@ -1,4 +1,4 @@
-use libc::{c_char, c_long};
+use libc::{c_char};
 use std::ffi::CString;
 use J2534Common::*;
 use crate::logger;
@@ -192,4 +192,34 @@ pub fn passthru_ioctl(
         }
     }
     PassthruError::STATUS_NOERROR 
+}
+
+/// Sets a channel filter
+/// # Params
+/// * channel_id - Target channel to add filter to
+/// * filter_type - Type of filter
+///
+pub fn set_channel_filter(channel_id: u32, filter_type: FilterType, mask_ptr: *const PASSTHRU_MSG, pattern_ptr: *const PASSTHRU_MSG, fc_ptr: *const PASSTHRU_MSG, msg_id_ptr: *mut u32) -> PassthruError {
+    // Error - Filter is flow control yet the specified flow control message is null!?
+    if filter_type == FilterType::FLOW_CONTROL_FILTER && fc_ptr.is_null() {
+        return PassthruError::ERR_NULL_PARAMETER
+    }
+    // These cannot be null!
+    if pattern_ptr.is_null() || fc_ptr.is_null() {
+        return PassthruError::ERR_NULL_PARAMETER
+    }
+
+    fn log_filter(name: &str, msg: *const PASSTHRU_MSG) {
+        let ptr = unsafe { msg.as_ref() };
+        ptr.map(|msg| {
+            logger::log_debug(format!("Filter specified. Type: {}, Data: [{:?}]", name, &msg.data[0..msg.data_size as usize]).as_str())
+        });
+    }
+    log_filter("Mask filter", mask_ptr);
+    log_filter("Pattern filter", pattern_ptr);
+    log_filter("Flow control filter", fc_ptr);
+
+
+
+    PassthruError::STATUS_NOERROR
 }

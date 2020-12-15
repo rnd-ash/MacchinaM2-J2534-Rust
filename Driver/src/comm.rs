@@ -8,7 +8,7 @@ use lazy_static::lazy_static;
 use std::num::Wrapping;
 use std::collections::hash_map::HashMap;
 use crate::logger;
-use J2534Common::{PassthruError, Loggable};
+use J2534Common::{PassthruError, Parsable};
 use crate::passthru_drv::set_error_string;
 use byteorder::{ByteOrder, WriteBytesExt, LittleEndian};
 

@@ -10,6 +10,9 @@ use num_traits::FromPrimitive;
 
 pub trait Loggable {
     fn to_string(&self) -> &str;
+}
+
+pub trait Parsable {
     fn from_raw(x: u32) -> Option<Self> where Self: Sized;
 }
 
@@ -45,10 +48,12 @@ impl Loggable for Protocol {
             Protocol::SCI_B_TRANS => "SCI B TRANS",
         }
     }
+}
+
+impl Parsable for Protocol {
     fn from_raw(x: u32) -> Option<Self> {
         FromPrimitive::from_u32(x)
     }
-
 }
 
 #[repr(u32)]
@@ -182,19 +187,38 @@ impl Loggable for PassthruError {
             PassthruError::ERR_INVALID_DEVICE_ID => "Device ID not recognised",
         }
     }
+}
 
+impl Parsable for PassthruError { 
     fn from_raw(x: u32) -> Option<Self>
     where Self: Sized {
         FromPrimitive::from_u32(x)   
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, FromPrimitive, PartialEq)]
 #[allow(non_camel_case_types, dead_code)]
 pub enum FilterType {
     PASS_FILTER = 0x01,
     BLOCK_FILTER = 0x02,
     FLOW_CONTROL_FILTER = 0x03,
+}
+
+impl Loggable for FilterType {
+        fn to_string(&self) -> &str {
+        match &self {
+            FilterType::PASS_FILTER => "Pass filter",
+            FilterType::BLOCK_FILTER => "Block filter",
+            FilterType::FLOW_CONTROL_FILTER => "ISO-TP Flow control filter"
+        }
+    }
+}
+
+impl Parsable for FilterType { 
+    fn from_raw(x: u32) -> Option<Self>
+    where Self: Sized {
+        FromPrimitive::from_u32(x)
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -244,7 +268,9 @@ impl Loggable for ConnectFlags {
             ConnectFlags::ISO9141_K_LINE_ONLY => "ISO9141 only use K-Line"
         }
     }
+}
 
+impl Parsable for ConnectFlags {
     fn from_raw(x: u32) -> Option<Self>
         where Self: Sized {
         FromPrimitive::from_u32(x)
@@ -279,7 +305,7 @@ bitflags! {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(C, packed(1))]
 pub struct PASSTHRU_MSG {
     pub protocol_id: u32,

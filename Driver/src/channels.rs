@@ -6,7 +6,17 @@ use crate::comm::*;
 use byteorder::{LittleEndian, ByteOrder, WriteBytesExt};
 use crate::passthru_drv::set_error_string;
 
-const MAX_CHANNELS: usize = 10;
+const MAX_CHANNELS: usize = 4;
+
+// Same physical 
+const USE_CAN_CHAN_ID: usize = 0;
+// Same physical
+const USE_KLINE_CHAN_ID: usize = 1;
+// Same physical
+const USE_J1850_CHAN_ID: usize = 2;
+// Same physical
+const USE_SCI_CHAN_ID: usize = 3;
+
 
 lazy_static! {
     static ref GLOBAL_CHANNELS: RwLock<[Option<Channel>; MAX_CHANNELS]> = RwLock::new([None; MAX_CHANNELS]);
@@ -23,30 +33,29 @@ impl ChannelComm {
     pub fn create_channel(protocol: Protocol, baud_rate: u32, flags: u32) -> Result<u32> {
         match GLOBAL_CHANNELS.write() {
             Ok(mut channels) => {
-                Self::get_free_id(&channels.as_ref()).and_then(|id|
-                    Channel::new(id as u32, protocol, baud_rate, flags) // If ID, create a new channel
-                ).and_then(|chan| {
-                    // If channel creation OK, set it in the channel list
-                    let idx = chan.id;
-                    channels[idx as usize] = Some(chan);
-                    Ok(idx as u32) // Return the ID
-                })
+                let channel_id = match protocol {
+                    Protocol::ISO15765 | Protocol::CAN => USE_CAN_CHAN_ID,
+                    Protocol::ISO14230 | Protocol::ISO9141 => USE_KLINE_CHAN_ID,
+                    Protocol::J1850PWM | Protocol::J1850VPW => USE_J1850_CHAN_ID,
+                    Protocol::SCI_A_ENGINE | Protocol::SCI_A_TRANS | Protocol::SCI_B_ENGINE | Protocol::SCI_B_TRANS => USE_SCI_CHAN_ID
+                };
+                if channels[channel_id].is_none() {
+                    Channel::new(channel_id as u32, protocol, baud_rate, flags) // If ID, create a new channel
+                    .and_then(|chan| {
+                        // If channel creation OK, set it in the channel list
+                        let idx = chan.id;
+                        channels[idx as usize] = Some(chan);
+                        Ok(idx as u32) // Return the ID
+                    })
+                } else {
+                    Err(PassthruError::ERR_CHANNEL_IN_USE)
+                }
             },
             Err(e) => {
                 set_error_string(format!("Write guard failed: {}", e));
                 Err(PassthruError::ERR_FAILED)
             }
         }
-    }
-
-    fn get_free_id(curr_list: &[Option<Channel>]) -> Result<usize> {
-        for i in 0..MAX_CHANNELS {
-            if curr_list[i].is_none() {
-                return Ok(i);
-            }
-        }
-        set_error_string(format!("Exceeded {} channels!", MAX_CHANNELS));
-        Err(PassthruError::ERR_FAILED)
     }
 
     pub fn destroy_channel(id: i32) -> Result<()> {

@@ -50,4 +50,9 @@
 #define		CAN_ID_BOTH		    0x00000800
 #define		ISO9141_K_LINE_ONLY	0x00001000
 
+// Filter type
+#define PASS_FILTER         0x01
+#define BLOCK_FILTER        0x02
+#define FLOW_CONTROL_FILTER 0x03
+
 #endif

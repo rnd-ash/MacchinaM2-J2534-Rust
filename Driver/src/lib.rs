@@ -86,7 +86,14 @@ pub extern "stdcall" fn PassThruStartMsgFilter(
     pFlowControlMsg: *const PASSTHRU_MSG,
     pMsgID: *mut u32,
 ) -> i32 {
-    PassthruError::STATUS_NOERROR as i32
+    let filter: FilterType = match FilterType::from_raw(FilterType) {
+        Some(f) => f,
+        None => {
+            set_error_string(format!("0x{:02X} is not a valid filter type", FilterType));
+            return PassthruError::ERR_FAILED as i32;
+        } 
+    };
+    passthru_drv::set_channel_filter(ChannelID, filter, pMaskMsg, pPatternMsg, pFlowControlMsg, pMsgID) as i32
 }
 
 #[no_mangle]
