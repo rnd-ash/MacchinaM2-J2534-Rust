@@ -88,6 +88,8 @@ void loop() {
     case MSG_OPEN_CHANNEL:
       setup_channel(&msg);
       break;
+    case MSG_SET_CHAN_FILT:
+      add_channel_filter(&msg);
     case MSG_CLOSE_CHANNEL:
       remove_channel(&msg);
       break;

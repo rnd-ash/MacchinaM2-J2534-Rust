@@ -106,3 +106,52 @@ void reset_all_channels() {
         klineChannel = nullptr;
     }
 }
+
+void add_channel_filter(COMM_MSG* msg) {
+    unsigned int channel_id;
+    unsigned int filter_id;
+    unsigned int filter_type;
+    unsigned int mask_size;
+    unsigned int pattern_size;
+    unsigned int flowcontrol_size;
+    memcpy(&channel_id, &msg->args[0], 4);
+    memcpy(&filter_id, &msg->args[4], 4);
+    memcpy(&filter_type, &msg->args[8], 4);
+    memcpy(&mask_size, &msg->args[12], 4);
+    memcpy(&pattern_size, &msg->args[16], 4);
+    memcpy(&flowcontrol_size, &msg->args[20], 4);
+    if (filter_type == FLOW_CONTROL_FILTER && flowcontrol_size == 0) {
+        PCCOMM::respond_err(MSG_SET_CHAN_FILT, ERR_NULL_PARAMETER, "WTF. ISO15765 FC filter is null? Driver should have checked this!");
+        return;
+    }
+    // Check if the channel is valid?
+    if (channel_id != CAN_CHANNEL_ID && channel_id != KLINE_CHANNEL_ID) {
+        PCCOMM::respond_err(MSG_SET_CHAN_FILT, ERR_INVALID_CHANNEL_ID, "Channel ID does not exist");
+        return;
+    }
+
+    // Channel is valid - Create our arrays for filter messages
+
+    // Mask
+    uint8_t* mask = new uint8_t[mask_size];
+    memcpy(&mask[0], &msg->args[24], mask_size);
+
+    // Pattern
+    uint8_t* pattern = new uint8_t[pattern_size];
+    memcpy(&pattern[0], &msg->args[24+mask_size], pattern_size);
+
+    // This is the only optional filter
+    uint8_t* flowcontrol = nullptr;
+    if (flowcontrol_size > 0) {
+        flowcontrol = new uint8_t[flowcontrol_size];
+        memcpy(&flowcontrol[0], &msg->args[24+mask_size+pattern_size], flowcontrol_size);
+    }
+    PCCOMM::respond_err(MSG_SET_CHAN_FILT, ERR_FAILED, "Not implemented");
+
+    // Done with these arrays, hardware has applied them, destroy
+    delete[] mask;
+    delete[] pattern;
+    if (flowcontrol != nullptr) {
+        delete[] flowcontrol;
+    }
+}

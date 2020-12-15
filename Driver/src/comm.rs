@@ -160,7 +160,7 @@ impl MacchinaM2 {
                     }
                 }
                if incomming == 0 {
-                   std::thread::sleep(std::time::Duration::from_millis(5));
+                   std::thread::sleep(std::time::Duration::from_millis(1));
                }
             }
             let msg = COMM_MSG::new_with_args(MsgType::StatusMsg, &[0x00]);

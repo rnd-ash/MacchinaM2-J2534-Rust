@@ -1,7 +1,7 @@
 use libc::{c_char};
 use std::ffi::CString;
 use J2534Common::*;
-use crate::logger;
+use crate::{channels, logger};
 use crate::comm::*;
 use lazy_static::lazy_static;
 use std::sync::Mutex;
@@ -200,6 +200,11 @@ pub fn passthru_ioctl(
 /// * filter_type - Type of filter
 ///
 pub fn set_channel_filter(channel_id: u32, filter_type: FilterType, mask_ptr: *const PASSTHRU_MSG, pattern_ptr: *const PASSTHRU_MSG, fc_ptr: *const PASSTHRU_MSG, msg_id_ptr: *mut u32) -> PassthruError {
+    if mask_ptr.is_null() || pattern_ptr.is_null() {
+        return PassthruError::ERR_NULL_PARAMETER
+    }
+    
+    
     // Error - Filter is flow control yet the specified flow control message is null!?
     if filter_type == FilterType::FLOW_CONTROL_FILTER && fc_ptr.is_null() {
         return PassthruError::ERR_NULL_PARAMETER
@@ -219,7 +224,24 @@ pub fn set_channel_filter(channel_id: u32, filter_type: FilterType, mask_ptr: *c
     log_filter("Pattern filter", pattern_ptr);
     log_filter("Flow control filter", fc_ptr);
 
+    fn get_filter_bytes(msg: *const PASSTHRU_MSG) -> Vec<u8> {
+        match unsafe { msg.as_ref() } {
+            None => Vec::new(),
+            Some(msg) => msg.data[0..msg.data_size as usize].to_vec()
+        }
+    }
 
 
-    PassthruError::STATUS_NOERROR
+    let mask: Vec<u8> = get_filter_bytes(mask_ptr);
+    let pattern: Vec<u8> = get_filter_bytes(pattern_ptr);
+    let flowcontrol: Vec<u8> = get_filter_bytes(fc_ptr);
+
+    match channels::ChannelComm::create_channel_filter(channel_id, filter_type, mask.as_slice(), pattern.as_slice(), flowcontrol.as_slice()) {
+        Ok(filter_id) => {
+            // Assign the filter ID
+            unsafe { *msg_id_ptr = filter_id };
+            PassthruError::STATUS_NOERROR
+        },
+        Err(e) => e
+    }
 }

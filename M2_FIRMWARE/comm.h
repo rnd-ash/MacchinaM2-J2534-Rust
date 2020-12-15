@@ -20,7 +20,7 @@
 
 // Reserve ~5Kb of memory for a temp buffer for reading and writing comm messages
 #define BUFFER_SIZE 4096
-#define COMM_MSG_ARG_SIZE 4092
+#define COMM_MSG_ARG_SIZE BUFFER_SIZE-4
 
 //
 struct __attribute__ ((packed)) COMM_MSG {

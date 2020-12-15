@@ -16,6 +16,7 @@ void setup_channel(COMM_MSG* msg);
 void remove_channel(COMM_MSG *msg);
 void channel_loop();
 void delete_channel(Channel*& ptr);
+void add_channel_filter(COMM_MSG* msg);
 
 void create_can_channel(int id, int protocol, int baud, int flags);
 
