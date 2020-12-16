@@ -14,12 +14,13 @@ namespace PCCOMM {
             digitalWrite(DS7_BLUE, LOW);
             isReadingMsg = true;
             read_count = 0;
-            char buf[2];
-            SerialUSB.readBytes(buf, 2);
-            memcpy(&read_target, buf, 2);
+            SerialUSB.readBytes((char*)&read_target, 2);
+            char buf[20];
+            sprintf(buf, "New msg size: %d", read_target);
+            log_message(buf);
             tempbuf = new char[read_target];
             return false;
-        } else if(SerialUSB.available() > 0) { // Just reading data
+        } else if(isReadingMsg && SerialUSB.available() > 0) { // Just reading data
             // Calculate how many bytes to read (min of avaliable bytes, or left to read to complete the data)
             uint16_t maxRead = min(SerialUSB.available(), read_target-read_count);
             SerialUSB.readBytes(&tempbuf[read_count], maxRead);
@@ -46,7 +47,6 @@ namespace PCCOMM {
     void send_message(COMM_MSG *msg) {
         digitalWrite(DS7_RED, LOW);
         SerialUSB.write((char*)msg, sizeof(COMM_MSG));
-        SerialUSB.flush();
         digitalWrite(DS7_RED, HIGH);
     }
 
@@ -54,29 +54,32 @@ namespace PCCOMM {
     COMM_MSG res = {0x00};
 
     void log_message(char* msg) {
+        memset(&res, 0x00, sizeof(COMM_MSG));
         res.msg_type = MSG_LOG;
-        res.arg_size = min(strlen(msg), 4095);
+        res.arg_size = min(strlen(msg), COMM_MSG_ARG_SIZE);
         memcpy(&res.args[0], msg, res.arg_size);
         send_message(&res);
     }
 
     void respond_ok(uint8_t op, uint8_t* args, uint16_t arg_size) {
+        memset(&res, 0x00, sizeof(COMM_MSG));
         res.msg_type = op;
-        res.arg_size = 1 + arg_size;
+        res.arg_size = 1 + min(arg_size, COMM_MSG_ARG_SIZE);
         res.msg_id = last_id;
         res.args[0] = 0x00; // STATUS_NOERROR
         if (arg_size != 0) {
-            memcpy(&res.args[1], args, min(arg_size, COMM_MSG_ARG_SIZE));
+            memcpy(&res.args[1], args, res.arg_size-1);
         }
         send_message(&res);
     }
 
     void respond_err(uint8_t op, uint8_t error_id, char* txt) {
+        memset(&res, 0x00, sizeof(COMM_MSG));
         res.msg_type = op;
-        res.arg_size = 1 + strlen(txt);
+        res.arg_size = 1 + min(strlen(txt), COMM_MSG_ARG_SIZE);
         res.args[0] = error_id;
         res.msg_id = last_id;
-        memcpy(&res.args[1], txt, strlen(txt));
+        memcpy(&res.args[1], txt, res.arg_size-1);
         send_message(&res);
     }
 }

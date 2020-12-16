@@ -18,11 +18,10 @@
 #define MSG_GET_FW_VERSION 0xAB
 #define MSG_TEST 0x0FF
 
-// Reserve ~5Kb of memory for a temp buffer for reading and writing comm messages
+// Reserve 4Kb of memory for a temp buffer for reading and writing comm messages. Basically, a larger serial buffer
 #define BUFFER_SIZE 4096
 #define COMM_MSG_ARG_SIZE BUFFER_SIZE-4
 
-//
 struct __attribute__ ((packed)) COMM_MSG {
     uint8_t msg_id;
     uint8_t msg_type;
