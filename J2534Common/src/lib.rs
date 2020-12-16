@@ -204,6 +204,16 @@ pub enum FilterType {
     FLOW_CONTROL_FILTER = 0x03,
 }
 
+impl std::fmt::Display for FilterType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self {
+            FilterType::PASS_FILTER => f.write_str("Pass filter"),
+            FilterType::BLOCK_FILTER => f.write_str("Block filter"),
+            FilterType::FLOW_CONTROL_FILTER => f.write_str("ISO-TP flow control filter"),
+        }
+    }
+}
+
 impl Loggable for FilterType {
         fn to_string(&self) -> &str {
         match &self {
@@ -315,6 +325,20 @@ pub struct PASSTHRU_MSG {
     pub data_size: u32,
     pub extra_data_size: u32,
     pub data: [u8; 4128],
+}
+
+impl Default for PASSTHRU_MSG {
+    fn default() -> Self {
+        PASSTHRU_MSG {
+            protocol_id: 0,
+            rx_status: 0,
+            tx_flags: 0,
+            timestamp: 0,
+            data_size: 0,
+            extra_data_size: 0,
+            data: [0; 4128],
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone)]

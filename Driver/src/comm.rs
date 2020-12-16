@@ -113,11 +113,11 @@ impl MacchinaM2 {
         
         p.set_timeout(std::time::Duration::from_millis(1));
         p.set_flow_control(FlowControl::Hardware);
+        p.set_data_bits(DataBits::Eight);
+        p.set_parity(Parity::None);
+        p.clear(ClearBuffer::All);
+        p.flush();
 
-        #[cfg(unix)]
-        {
-            p.clear(ClearBuffer::All);
-        }
         let mut port = p;
         let mut port_t = port.try_clone().unwrap();
 
@@ -142,6 +142,7 @@ impl MacchinaM2 {
             let mut read_count = 0;
             while is_running_t.load(Ordering::Relaxed) {
                 let incomming = port_t.bytes_to_read().unwrap_or(0) as usize;
+                //eprintln!("{}", incomming);
                 if incomming > 0 {
                     let btr: usize = std::cmp::min(incomming, COMM_MSG_SIZE-read_count);
                     port_t.read_exact(&mut read_buffer[read_count..read_count+btr]).unwrap();
@@ -152,16 +153,19 @@ impl MacchinaM2 {
                         read_buffer =[0x00; COMM_MSG_SIZE];
                         match msg.msg_type {
                             MsgType::LogMsg => { logger::log_m2(String::from_utf8(Vec::from(msg.args)).unwrap().as_str()) },
+                            MsgType::TransmitChannelData => {
+                                // TODO
+                                //eprintln!("WARNING: Unhandled incomming data {}", &msg);
+                            },
                             _ => {
                                 logger::log_debug(format!("Read message: {}", &msg).as_str());
                                 rx_queue_t.lock().unwrap().insert(msg.msg_id, msg);
                             }
                         }
                     }
+                } else {
+                    std::thread::sleep(std::time::Duration::from_micros(10));
                 }
-               if incomming == 0 {
-                   std::thread::sleep(std::time::Duration::from_millis(1));
-               }
             }
             let msg = COMM_MSG::new_with_args(MsgType::StatusMsg, &[0x00]);
             port_t.write_all(&msg.to_slice());
@@ -221,8 +225,10 @@ impl MacchinaM2 {
     pub fn write_and_read(&mut self, mut s: COMM_MSG, timeout_ms: u128) -> PTResult<COMM_MSG> {
         let query_id = get_id(); // Set a unique ID, M2 is now forced to respond
         s.msg_id = query_id;
-        if self.port.write_all(&s.to_slice()).is_err() {
+        if self.port.write(&s.to_slice()).is_err() {
             return Err(PassthruError::ERR_DEVICE_NOT_CONNECTED)
+        } else {
+            self.port.flush();
         }
         logger::log_debug(format!("Write data: {}", &s).as_str());
         let start_time = std::time::Instant::now();
@@ -264,6 +270,7 @@ pub enum MsgType {
     TransmitChannelData = 0x06,
     ReceiveChannelData = 0x07,
     ReadBatt = 0x08,
+    Ioctl = 0x09,
     StatusMsg = 0xAA,
     GetFwVersion = 0xAB,
     #[cfg(test)]
@@ -287,6 +294,7 @@ impl MsgType {
             0x06 => MsgType::TransmitChannelData,
             0x07 => MsgType::ReceiveChannelData,
             0x08 => MsgType::ReadBatt,
+            0x09 => MsgType::Ioctl,
             0xAA => MsgType::StatusMsg,
             0xAB => MsgType::GetFwVersion,
             #[cfg(test)]

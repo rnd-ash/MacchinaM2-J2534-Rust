@@ -15,9 +15,6 @@ namespace PCCOMM {
             isReadingMsg = true;
             read_count = 0;
             SerialUSB.readBytes((char*)&read_target, 2);
-            char buf[20];
-            sprintf(buf, "New msg size: %d", read_target);
-            log_message(buf);
             tempbuf = new char[read_target];
             return false;
         } else if(isReadingMsg && SerialUSB.available() > 0) { // Just reading data
@@ -47,6 +44,7 @@ namespace PCCOMM {
     void send_message(COMM_MSG *msg) {
         digitalWrite(DS7_RED, LOW);
         SerialUSB.write((char*)msg, sizeof(COMM_MSG));
+        SerialUSB.flush(); // Wait for IO to complete!
         digitalWrite(DS7_RED, HIGH);
     }
 
@@ -81,5 +79,36 @@ namespace PCCOMM {
         res.msg_id = last_id;
         memcpy(&res.args[1], txt, res.arg_size-1);
         send_message(&res);
+    }
+
+    void tx_data(uint8_t channel_id, char* data, uint16_t data_len) {
+        memset(&res, 0x00, sizeof(COMM_MSG));
+        res.msg_type = MSG_TX_CHAN_DATA;
+        res.arg_size = 1 + min(data_len, COMM_MSG_ARG_SIZE);
+        res.args[0] = channel_id;
+        res.msg_id = 0x00;
+        memcpy(&res.args[1], data, res.arg_size-1);
+        digitalWrite(DS7_GREEN, LOW);
+        send_message(&res);
+        digitalWrite(DS7_GREEN, HIGH);
+    }
+
+    /**
+     * Called on M2 disconnect
+     */
+    void reset() {
+        isReadingMsg = false;
+        read_count = 0;
+        read_target = 0;
+        last_id = 0;
+        if (isReadingMsg) {
+            delete[] tempbuf;
+            tempbuf = nullptr;
+            isReadingMsg = false;
+        }
+        // Empty any remaining serial data
+        while (Serial.available()) {
+            Serial.read();
+        }
     }
 }

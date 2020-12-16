@@ -54,15 +54,19 @@ void send_v_batt() {
   PCCOMM::respond_ok(MSG_READ_BATT, (uint8_t*)(&v_batt), 4);
 }
 
+bool isConnected = false;
 void set_status_led(uint8_t status) {
   if (status == 0x00) {
     digitalWrite(DS6, HIGH); // Green Off
     digitalWrite(DS2, LOW); // Red On
     reset_all_channels();
+    PCCOMM::reset();
+    isConnected = false;
     // TODO Reset M2 to default state when we disconnect
   } else {
     digitalWrite(DS6, LOW); // Green On
     digitalWrite(DS2, HIGH); // Red Off
+    isConnected = true;
   }
 }
 
@@ -90,6 +94,7 @@ void loop() {
       break;
     case MSG_SET_CHAN_FILT:
       add_channel_filter(&msg);
+      break;
     case MSG_CLOSE_CHANNEL:
       remove_channel(&msg);
       break;

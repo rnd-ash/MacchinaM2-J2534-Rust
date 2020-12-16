@@ -133,21 +133,33 @@ void add_channel_filter(COMM_MSG* msg) {
     // Channel is valid - Create our arrays for filter messages
 
     // Mask
-    uint8_t* mask = new uint8_t[mask_size];
+    char* mask = new char[mask_size];
     memcpy(&mask[0], &msg->args[24], mask_size);
 
     // Pattern
-    uint8_t* pattern = new uint8_t[pattern_size];
+    char* pattern = new char[pattern_size];
     memcpy(&pattern[0], &msg->args[24+mask_size], pattern_size);
 
     // This is the only optional filter
-    uint8_t* flowcontrol = nullptr;
+    char* flowcontrol = nullptr;
     if (flowcontrol_size > 0) {
-        flowcontrol = new uint8_t[flowcontrol_size];
+        flowcontrol = new char[flowcontrol_size];
         memcpy(&flowcontrol[0], &msg->args[24+mask_size+pattern_size], flowcontrol_size);
     }
-    PCCOMM::respond_err(MSG_SET_CHAN_FILT, ERR_FAILED, "Not implemented");
 
+    if (channel_id == CAN_CHANNEL_ID) {
+        if (canChannel != nullptr) {
+            canChannel->addFilter(filter_type, filter_id, mask, pattern, flowcontrol, mask_size, pattern_size, flowcontrol_size);
+        } else {
+            PCCOMM::respond_err(MSG_SET_CHAN_FILT, ERR_INVALID_CHANNEL_ID, nullptr);
+        }
+    } else if (channel_id == KLINE_CHANNEL_ID) {
+        if (klineChannel != nullptr) {
+             klineChannel->addFilter(filter_type, filter_id, mask, pattern, flowcontrol, mask_size, pattern_size, flowcontrol_size);
+        } else {
+             PCCOMM::respond_err(MSG_SET_CHAN_FILT, ERR_INVALID_CHANNEL_ID, nullptr);
+        }
+    }
     // Done with these arrays, hardware has applied them, destroy
     delete[] mask;
     delete[] pattern;

@@ -201,16 +201,12 @@ pub fn passthru_ioctl(
 ///
 pub fn set_channel_filter(channel_id: u32, filter_type: FilterType, mask_ptr: *const PASSTHRU_MSG, pattern_ptr: *const PASSTHRU_MSG, fc_ptr: *const PASSTHRU_MSG, msg_id_ptr: *mut u32) -> PassthruError {
     if mask_ptr.is_null() || pattern_ptr.is_null() {
+        log_error("Mask or pattern is null!?");
         return PassthruError::ERR_NULL_PARAMETER
     }
-    
     
     // Error - Filter is flow control yet the specified flow control message is null!?
     if filter_type == FilterType::FLOW_CONTROL_FILTER && fc_ptr.is_null() {
-        return PassthruError::ERR_NULL_PARAMETER
-    }
-    // These cannot be null!
-    if pattern_ptr.is_null() || fc_ptr.is_null() {
         return PassthruError::ERR_NULL_PARAMETER
     }
 
