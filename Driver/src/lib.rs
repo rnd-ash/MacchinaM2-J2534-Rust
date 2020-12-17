@@ -5,6 +5,7 @@ mod comm;
 mod channels;
 use comm::{MacchinaM2};
 mod passthru_drv;
+use logger::log_error;
 use  passthru_drv::*;
 
 #[cfg(test)]
@@ -73,7 +74,7 @@ pub extern "stdcall" fn PassThruReadMsgs(
     pNumMsgs: *mut u32,
     Timeout: u32,
 ) -> i32 {
-    PassthruError::STATUS_NOERROR as i32
+    passthru_drv::read_msgs(ChannelID, pMsg, pNumMsgs, Timeout) as i32
 }
 
 #[no_mangle]
@@ -107,22 +108,10 @@ pub extern "stdcall" fn PassThruStopMsgFilter(ChannelID: u32, MsgID: u32) -> i32
 pub extern "stdcall" fn PassThruWriteMsgs(
     ChannelID: u32,
     pMsg: *const PASSTHRU_MSG,
-    pNumMsgs: *const u32,
+    pNumMsgs: *mut u32,
     Timeout: u32,
 ) -> i32 {
-    if let Some(ptr) = unsafe { pMsg.as_ref() } {
-        let prot = match Protocol::from_raw(ptr.protocol_id) {
-            Some(p) => p,
-            None => return PassthruError::ERR_INVALID_PROTOCOL_ID as i32,
-        };
-        let size = ptr.data_size;
-        let data = &ptr.data[0..size as usize];
-        logger::log_info(format!(
-            "WRITE_MSGS. Protocol: {:?}, Data size: {} {:x?}. Timeout {} ms",
-            prot, size, data, Timeout
-        ).as_str());
-    }
-    PassthruError::STATUS_NOERROR as i32
+    passthru_drv::write_msgs(ChannelID, pMsg, pNumMsgs, Timeout) as i32
 }
 
 #[no_mangle]
@@ -161,6 +150,7 @@ pub extern "stdcall" fn PassThruSetProgrammingVoltage(
     Voltage: u32,
 ) -> i32 {
     // This isn't used as Macchina hardware does not support this
+    log_error("Programming voltage setting not supported");
     set_error_string("Programming voltage is not supported".to_string());
     PassthruError::ERR_FAILED as i32
 }

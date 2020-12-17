@@ -1,5 +1,5 @@
 use libc::{c_char};
-use std::ffi::CString;
+use std::{ffi::CString, time::Instant};
 use J2534Common::*;
 use crate::{channels, logger};
 use crate::comm::*;
@@ -213,7 +213,7 @@ pub fn set_channel_filter(channel_id: u32, filter_type: FilterType, mask_ptr: *c
     fn log_filter(name: &str, msg: *const PASSTHRU_MSG) {
         let ptr = unsafe { msg.as_ref() };
         ptr.map(|msg| {
-            logger::log_debug(format!("Filter specified. Type: {}, Data: [{:?}]", name, &msg.data[0..msg.data_size as usize]).as_str())
+            logger::log_debug(format!("Filter specified. Type: {}, Data: {:?}", name, &msg.data[0..msg.data_size as usize]).as_str())
         });
     }
     log_filter("Mask filter", mask_ptr);
@@ -240,4 +240,64 @@ pub fn set_channel_filter(channel_id: u32, filter_type: FilterType, mask_ptr: *c
         },
         Err(e) => e
     }
+}
+
+pub fn write_msgs(channel_id: u32, msg_ptr: *const PASSTHRU_MSG, num_msg_ptr: *mut u32, timeout_ms: u32) -> PassthruError {
+    if msg_ptr.is_null() || num_msg_ptr.is_null() {
+        return PassthruError::ERR_NULL_PARAMETER
+    }
+
+    let max_msgs = *unsafe { num_msg_ptr.as_ref() }.unwrap() as usize;
+    // Set num_msg_ptr to 0, we will increment it as reading to keep track how many messages have been written
+    unsafe { *num_msg_ptr = 0 };
+    let start_time = Instant::now();
+    for i in 0..max_msgs {
+        if timeout_ms != 0 && start_time.elapsed().as_millis() > timeout_ms as u128 { // Timeout!
+            return PassthruError::ERR_TIMEOUT
+        }
+        let curr_msg = match unsafe { msg_ptr.offset(i as isize).as_ref() } {
+            Some(m) => m,
+            None => return PassthruError::ERR_NULL_PARAMETER
+        };
+        match channels::ChannelComm::write_channel_data(channel_id, curr_msg, timeout_ms != 0) {
+            Ok(()) => {}, // Continue
+            Err(e) => return e // Stop sending and return the error to the application
+        }
+        unsafe { *num_msg_ptr += 1 };
+    }
+    return PassthruError::STATUS_NOERROR
+}
+
+pub fn read_msgs(channel_id: u32, msg_ptr: *mut PASSTHRU_MSG, num_msg_ptr: *mut u32, timeout_ms: u32) -> PassthruError {
+    if msg_ptr.is_null() || num_msg_ptr.is_null() {
+        return PassthruError::ERR_NULL_PARAMETER
+    }
+
+    let max_msgs = *unsafe { num_msg_ptr.as_ref() }.unwrap() as usize;
+    // Set num_msg_ptr to 0, we will increment it as reading to keep track how many messages have been read
+    unsafe { *num_msg_ptr = 0 };
+    let start_time = Instant::now();
+    for i in 0..max_msgs {
+        if timeout_ms != 0 && start_time.elapsed().as_millis() > timeout_ms as u128 { // Timeout!
+            return PassthruError::ERR_TIMEOUT
+        }
+        match channels::ChannelComm::read_channel_data(channel_id) {
+            Ok(opt) => {
+
+                match opt {
+                    Some(msg) => {
+                        unsafe { *msg_ptr.offset(i as isize) = msg; }
+                        unsafe { *num_msg_ptr += 1 };
+                    }
+                    None => {
+                        if timeout_ms == 0 {
+                            return PassthruError::ERR_BUFFER_EMPTY
+                        }
+                    }
+                }
+            }
+            Err(e) => return e
+        }
+    }
+    return PassthruError::STATUS_NOERROR
 }

@@ -1,7 +1,8 @@
 use J2534Common::*;
 use lazy_static::*;
-use libc::free;
-use crate::logger::*;
+use std::time::Instant;
+use crate::{PassThruConnect, logger::*};
+use std::collections::VecDeque;
 use std::sync::*;
 use crate::comm::*;
 use byteorder::{LittleEndian, ByteOrder, WriteBytesExt};
@@ -22,7 +23,7 @@ const USE_SCI_CHAN_ID: usize = 3;
 const MAX_FILTERS_PER_CHANNEL: usize = 10;
 
 lazy_static! {
-    static ref GLOBAL_CHANNELS: RwLock<[Option<Channel>; MAX_CHANNELS]> = RwLock::new([None; MAX_CHANNELS]);
+    static ref GLOBAL_CHANNELS: RwLock<Vec<Option<Channel>>> = RwLock::new(vec![None; MAX_CHANNELS]);
 }
 
 type Result<T> = std::result::Result<T, PassthruError>;
@@ -64,14 +65,11 @@ impl ChannelComm {
     pub fn destroy_channel(id: i32) -> Result<()> {
         match GLOBAL_CHANNELS.write() {
             Ok(mut channels) => {
-                let res = match channels[id as usize] {
-                    Some(mut channel) => channel.destroy(),
-                    None => Err(PassthruError::ERR_INVALID_CHANNEL_ID)
-                };
-                if res.is_ok() {
-                    channels[id as usize] = None; // Drop the old channel if we succeeded in destroying it
+                if let Some(mut tmp_channel) = channels[id as usize].take() {
+                    tmp_channel.destroy()
+                } else {
+                    Err(PassthruError::ERR_INVALID_CHANNEL_ID)
                 }
-                res
             },
             Err(e) => {
                 set_error_string(format!("Write guard failed: {}", e));
@@ -94,17 +92,69 @@ impl ChannelComm {
             }
         } 
     }
+    pub fn write_channel_data(channel_id: u32, msg: &PASSTHRU_MSG, require_response: bool) -> Result<()> {
+        match GLOBAL_CHANNELS.write() {
+            Ok(mut channels) => {
+                match channels[channel_id as usize] {
+                    Some(ref mut c) => c.transmit_data(msg, require_response),
+                    None => Err(PassthruError::ERR_INVALID_CHANNEL_ID)
+                }
+            },
+            Err(e) => {
+                set_error_string(format!("Write guard failed: {}", e));
+                Err(PassthruError::ERR_FAILED)
+            }
+        } 
+    }
+
+    pub fn read_channel_data(channel_id: u32) -> Result<Option<PASSTHRU_MSG>> {
+        match GLOBAL_CHANNELS.write() {
+            Ok(mut channels) => {
+                match channels[channel_id as usize] {
+                    Some(ref mut c) => Ok(c.pop_rx_queue()),
+                    None => Err(PassthruError::ERR_INVALID_CHANNEL_ID)
+                }
+            },
+            Err(e) => {
+                set_error_string(format!("Write guard failed: {}", e));
+                Err(PassthruError::ERR_FAILED)
+            }
+        } 
+    }
+
+    /// Used by the receiver thread running on the M2 to write data to our Rx buffer
+    pub fn receive_channel_data(msg: &COMM_MSG) {
+        let channel_id = msg.args[0] as u32;
+        match GLOBAL_CHANNELS.write() {
+            Ok(mut channels) => {
+                // Unpack the message
+                let tx_flags = LittleEndian::read_u32(&msg.args[1..5]);
+                let data = &msg.args[5..msg.arg_size as usize];
+                match channels[channel_id as usize] {
+                    Some(ref mut c) => c.on_receive_data(tx_flags, data),
+                    None => {} // Ignore if channel gets deleted
+                }
+            },
+            Err(_) => {
+                log_error(format!("Could not write data to channel {} - Write guard lock failed", channel_id).as_str())
+            }
+        } 
+    }
+
 }
 
 
+const MAX_QUEUE_MSGS: usize = 100;
 /// J2534 API Channel
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 struct Channel {
     id: u32,
     protocol: Protocol,
     baud_rate: u32,
     flags: u32,
     filters: [u8; MAX_FILTERS_PER_CHANNEL],
+    tx_data: VecDeque<PASSTHRU_MSG>, // 1000 Tx messages (~4MB)
+    rx_data: VecDeque<PASSTHRU_MSG>, // 1000 Rx messages (~4MB)
 }
 
 impl Channel {
@@ -123,7 +173,15 @@ impl Channel {
             match dev.write_and_read_ptcmd(msg, 100) {
                 M2Resp::Ok(_) => {
                     log_debug("M2 opened channel!");
-                    Ok(Self{id, protocol, baud_rate, flags, filters: [0x00; MAX_FILTERS_PER_CHANNEL]})
+                    Ok(Self{
+                        id, 
+                        protocol, 
+                        baud_rate, 
+                        flags, 
+                        filters: [0x00; MAX_FILTERS_PER_CHANNEL], 
+                        tx_data: VecDeque::new(), 
+                        rx_data: VecDeque::new(),
+                    })
                 },
                 M2Resp::Err{status, string} => {
                     log_error(format!("M2 failed to open channel {} (Status {:?}): {}", id, status, string).as_str());
@@ -160,7 +218,7 @@ impl Channel {
         log_debug(format!("Setting {} (ID: {}) on channel {}. Mask: {:02X?}, Pattern: {:02X?}, FlowControl: {:02X?}", filter_type, self.id, free_id, mask_bytes, pattern_bytes, fc_bytes).as_str());
         let msg = COMM_MSG::new_with_args(MsgType::SetChannelFilter, dst.as_mut_slice());
         run_on_m2(|dev |{
-            match dev.write_and_read_ptcmd(msg, 100) {
+            match dev.write_and_read_ptcmd(msg, 250) {
                 M2Resp::Ok(_) => {
                     log_debug(format!("M2 set filter {} on channel {}!", free_id, self.id).as_str());
                     self.filters[free_id] = 1; // Mark it as used
@@ -207,7 +265,7 @@ impl Channel {
         dst.write_u32::<LittleEndian>(self.id).unwrap();
         let msg = COMM_MSG::new_with_args(MsgType::CloseChannel, dst.as_mut_slice());
         run_on_m2(|dev |{
-            match dev.write_and_read_ptcmd(msg, 100) {
+            match dev.write_and_read_ptcmd(msg, 250) {
                 M2Resp::Ok(_) => Ok(()),
                 M2Resp::Err{status, string} => {
                     log_error(format!("M2 failed to close channel {} (Status {:?}): {}", self.id, status, string).as_str());
@@ -217,9 +275,70 @@ impl Channel {
             }
         })
     }
-}
 
-#[test]
-fn test_channel_args() {
-    let c = Channel::new(0x01, Protocol::ISO15765, 500_000, 0);
+    pub fn transmit_data(&mut self, msg: &PASSTHRU_MSG, require_response: bool) -> Result<()> {
+        if msg.protocol_id != self.protocol as u32 {
+            return Err(PassthruError::ERR_MSG_PROTOCOL_ID);
+        }
+
+        // Build Tx message
+        let mut dst: Vec<u8> = Vec::new();
+        for arg in [self.id, msg.tx_flags].iter() {
+            dst.write_u32::<LittleEndian>(*arg).unwrap();
+        }
+        dst.extend_from_slice(&msg.data[0..msg.data_size as usize]);
+        let msg = COMM_MSG::new_with_args(MsgType::TransmitChannelData, dst.as_mut_slice());
+        log_debug(format!("Channel {} writing message: {}. Response required?: {}", self.id, msg, require_response).as_str());
+        run_on_m2(|dev| {
+            if require_response {
+                match dev.write_and_read_ptcmd(msg, 100) {
+                    M2Resp::Ok(_) => Ok(()),
+                    M2Resp::Err{status, string}  => {
+                        log_error(format!("M2 failed to write data to channel {} (Status {:?}): {}", self.id, status, string).as_str());
+                        set_error_string(string);
+                        Err(status)
+                    }
+                }
+            } else {
+                dev.write_comm_struct(msg)
+            }
+        })
+    }
+
+    pub fn pop_rx_queue(&mut self) -> Option<PASSTHRU_MSG> {
+        self.rx_data.pop_front()
+    }
+
+    pub fn on_receive_data(&mut self, tx_flags: u32, data: &[u8]) {
+        if self.rx_data.len() < MAX_QUEUE_MSGS {
+            let mut msg = PASSTHRU_MSG::default();
+            msg.tx_flags = tx_flags;
+            msg.protocol_id = self.protocol as u32;
+            msg.timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros() as u32;
+            self.rx_data.push_back(msg);
+        } else {
+            // Data is lost if queue is too big!
+            log_error(format!("Rx queue in channel {} is full. Data has been lost!", self.id).as_str());
+        }
+    }
+
+    pub fn ioctl(&mut self, ioctl_id: IoctlID) -> Result<()> {
+        match ioctl_id {
+            IoctlID::CLEAR_TX_BUFFER => self.tx_data.clear(),
+            IoctlID::CLEAR_RX_BUFFER => self.rx_data.clear(),
+            _ => {
+                log_error(format!("Unhandled raw IOCTL request for channel {} {:?}", self.id, ioctl_id).as_str());
+                return Err(PassthruError::ERR_FAILED)
+            }
+        }
+        Ok(())
+    }
+
+    pub fn ioctl_set_config() {
+
+    }
+
+    pub fn ioctl_get_config() {
+
+    }
 }

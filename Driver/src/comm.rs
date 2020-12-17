@@ -1,22 +1,23 @@
 use serialport::*;
 use std::io::{Write, Read, Error, ErrorKind};
-use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, atomic::AtomicU32, atomic::AtomicBool, atomic::Ordering};
 use std::thread::{spawn, JoinHandle};
 use std::sync::RwLock;
 use lazy_static::lazy_static;
-use std::num::Wrapping;
 use std::collections::hash_map::HashMap;
-use crate::logger;
+use crate::{channels, logger};
 use J2534Common::{PassthruError, Parsable};
 use crate::passthru_drv::set_error_string;
 use byteorder::{ByteOrder, WriteBytesExt, LittleEndian};
+
 
 #[cfg(unix)]
 use serde_json;
 
 #[cfg(windows)]
 use winreg::{RegKey, RegValue, enums::HKEY_LOCAL_MACHINE};
+#[cfg(windows)]
+use winapi::{shared::ntdef::HANDLE, um::{commapi::{GetCommState, PurgeComm, SetCommState}, fileapi::{CreateFileW, OPEN_EXISTING}, handleapi::INVALID_HANDLE_VALUE, winbase::{CBR_115200, DCB, FILE_FLAG_OVERLAPPED, NOPARITY, ONESTOPBIT, PURGE_RXCLEAR, PURGE_TXCLEAR}, winnt::{FILE_ATTRIBUTE_NORMAL, GENERIC_READ, GENERIC_WRITE}}};
 
 lazy_static! {
     pub static ref M2: RwLock<Option<MacchinaM2>> = RwLock::new(None);
@@ -79,7 +80,6 @@ fn get_comm_port() -> Option<String> {
     None
 }
 
-
 pub type PTResult<T> = std::result::Result<T, PassthruError>;
 pub fn run_on_m2<T, F: FnOnce(&mut MacchinaM2) -> PTResult<T>>(op: F) -> PTResult<T> {
     match M2.write().as_deref_mut() {
@@ -106,20 +106,19 @@ impl MacchinaM2 {
 
 
     fn open_conn(port: &str) -> Result<Self> {
-        let mut p = match serialport::new(port, 115200).open_native() {
-            Ok(port) => port,
+        
+        let mut port = match serialport::new(port, 115200).open_native() {
+            Ok(mut port) => {
+                port.set_timeout(std::time::Duration::from_millis(1))?;
+                port.set_flow_control(FlowControl::Hardware)?;
+                port.set_data_bits(DataBits::Eight)?;
+                port.set_parity(Parity::None)?;
+                port
+            },
             Err(e) => {return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Error opening port {}", e.to_string())));}
         };
         
-        p.set_timeout(std::time::Duration::from_millis(1));
-        p.set_flow_control(FlowControl::Hardware);
-        p.set_data_bits(DataBits::Eight);
-        p.set_parity(Parity::None);
-        p.clear(ClearBuffer::All);
-        p.flush();
-
-        let mut port = p;
-        let mut port_t = port.try_clone().unwrap();
+        let mut port_t = port.try_clone_native().unwrap();
 
         // Create our Rx queue for incomming messages
         let rx_queue = Arc::new(Mutex::new(HashMap::new()));
@@ -129,9 +128,9 @@ impl MacchinaM2 {
         let is_running = Arc::new(AtomicBool::new(true));
         let is_running_t = is_running.clone();
         // Since UNIX has a 4KB Page size, I want to store more data,
-        // Use a 8KB Buffer
+        // Use a 16KB Buffer
         let handler = Some(spawn(move || {
-            let mut read_buffer: [u8; COMM_MSG_SIZE] = [0x00; COMM_MSG_SIZE];
+            let mut read_buffer: [u8; COMM_MSG_SIZE * 4] = [0x00; COMM_MSG_SIZE * 4];
             logger::log_debug("M2 receiver thread starting!");
             let msg = COMM_MSG::new_with_args(MsgType::StatusMsg, &[0x01]);
             if port_t.write_all(&msg.to_slice()).is_err() {
@@ -141,22 +140,16 @@ impl MacchinaM2 {
             }
             let mut read_count = 0;
             while is_running_t.load(Ordering::Relaxed) {
-                let incomming = port_t.bytes_to_read().unwrap_or(0) as usize;
-                //eprintln!("{}", incomming);
+                let incomming = port_t.read(&mut read_buffer[read_count..]).unwrap_or(0);
                 if incomming > 0 {
-                    let btr: usize = std::cmp::min(incomming, COMM_MSG_SIZE-read_count);
-                    port_t.read_exact(&mut read_buffer[read_count..read_count+btr]).unwrap();
-                    read_count += btr;
-                    if read_count == COMM_MSG_SIZE {
-                        read_count = 0;
-                        let msg = COMM_MSG::from_vec(&read_buffer);
-                        read_buffer =[0x00; COMM_MSG_SIZE];
+                    read_count += incomming;
+                    if read_count >= COMM_MSG_SIZE {
+                        read_count -= COMM_MSG_SIZE;
+                        let msg = COMM_MSG::from_vec(&read_buffer[0..COMM_MSG_SIZE]);
+                        read_buffer.rotate_right(COMM_MSG_SIZE);
                         match msg.msg_type {
                             MsgType::LogMsg => { logger::log_m2(String::from_utf8(Vec::from(msg.args)).unwrap().as_str()) },
-                            MsgType::TransmitChannelData => {
-                                // TODO
-                                //eprintln!("WARNING: Unhandled incomming data {}", &msg);
-                            },
+                            MsgType::TransmitChannelData => channels::ChannelComm::receive_channel_data(&msg),
                             _ => {
                                 logger::log_debug(format!("Read message: {}", &msg).as_str());
                                 rx_queue_t.lock().unwrap().insert(msg.msg_id, msg);
@@ -186,19 +179,25 @@ impl MacchinaM2 {
         return Ok(m);
     }
 
-    pub fn write_comm_struct(&mut self, mut s: COMM_MSG) {
+    pub fn write_comm_struct(&mut self, mut s: COMM_MSG) -> PTResult<()> {
         s.msg_id = 0x00; // Tell M2 it doesn't have to respond to request
-        println!("OUT->{}", s);
+        if self.port.write(&s.to_slice()).is_err() {
+            return Err(PassthruError::ERR_DEVICE_NOT_CONNECTED);
+        }
+        if self.port.flush().is_err() {
+            return Err(PassthruError::ERR_DEVICE_NOT_CONNECTED);
+        }
+        Ok(())
     }
 
     pub fn write_and_read_ptcmd(&mut self, s: COMM_MSG, timeout_ms: u128) -> M2Resp {
         match self.write_and_read(s, timeout_ms) {
-            Err(e) => M2Resp::Err { status: e, string: format!("M2 communication failure: {:?} ms", e) },
+            Err(e) => M2Resp::Err { status: e, string: format!("M2 communication failure: {:?}", e) },
             Ok(resp) => {
                 let status = match PassthruError::from_raw(resp.args[0] as u32) {
                     Some(x) => x,
                     None => {
-                        return M2Resp::Err{ status: PassthruError::ERR_FAILED, string: format!("Unrecognised status {}", resp.args[0]) }
+                        return M2Resp::Err{ status: PassthruError::ERR_FAILED, string: format!("Unrecognized status {}", resp.args[0]) }
                     }
                 };
                 match status {
@@ -227,8 +226,6 @@ impl MacchinaM2 {
         s.msg_id = query_id;
         if self.port.write(&s.to_slice()).is_err() {
             return Err(PassthruError::ERR_DEVICE_NOT_CONNECTED)
-        } else {
-            self.port.flush();
         }
         logger::log_debug(format!("Write data: {}", &s).as_str());
         let start_time = std::time::Instant::now();
