@@ -1,3 +1,4 @@
+use logger::log_debug;
 use serialport::*;
 use std::io::{Write, Read, Error, ErrorKind};
 use std::sync::{Arc, Mutex, atomic::AtomicU32, atomic::AtomicBool, atomic::Ordering};
@@ -107,7 +108,7 @@ impl MacchinaM2 {
 
     fn open_conn(port: &str) -> Result<Self> {
         
-        let mut port = match serialport::new(port, 115200).open_native() {
+        let port = match serialport::new(port, 115200).open_native() {
             Ok(mut port) => {
                 port.set_timeout(std::time::Duration::from_millis(1))?;
                 port.set_flow_control(FlowControl::Hardware)?;
@@ -149,7 +150,7 @@ impl MacchinaM2 {
                         read_buffer.rotate_right(COMM_MSG_SIZE);
                         match msg.msg_type {
                             MsgType::LogMsg => { logger::log_m2(String::from_utf8(Vec::from(msg.args)).unwrap().as_str()) },
-                            MsgType::TransmitChannelData => channels::ChannelComm::receive_channel_data(&msg),
+                            MsgType::ReceiveChannelData => { channels::ChannelComm::receive_channel_data(&msg); },
                             _ => {
                                 logger::log_debug(format!("Read message: {}", &msg).as_str());
                                 rx_queue_t.lock().unwrap().insert(msg.msg_id, msg);
@@ -181,10 +182,7 @@ impl MacchinaM2 {
 
     pub fn write_comm_struct(&mut self, mut s: COMM_MSG) -> PTResult<()> {
         s.msg_id = 0x00; // Tell M2 it doesn't have to respond to request
-        if self.port.write(&s.to_slice()).is_err() {
-            return Err(PassthruError::ERR_DEVICE_NOT_CONNECTED);
-        }
-        if self.port.flush().is_err() {
+        if self.port.write_all(&s.to_slice()).is_err() {
             return Err(PassthruError::ERR_DEVICE_NOT_CONNECTED);
         }
         Ok(())
@@ -224,7 +222,7 @@ impl MacchinaM2 {
     pub fn write_and_read(&mut self, mut s: COMM_MSG, timeout_ms: u128) -> PTResult<COMM_MSG> {
         let query_id = get_id(); // Set a unique ID, M2 is now forced to respond
         s.msg_id = query_id;
-        if self.port.write(&s.to_slice()).is_err() {
+        if self.port.write_all(&s.to_slice()).is_err() {
             return Err(PassthruError::ERR_DEVICE_NOT_CONNECTED)
         }
         logger::log_debug(format!("Write data: {}", &s).as_str());
@@ -232,12 +230,12 @@ impl MacchinaM2 {
         while start_time.elapsed().as_millis() <= timeout_ms {
             if let Ok(mut lock) = self.rx_queue.lock() {
                 if lock.contains_key(&query_id) {
+                    log_debug(format!("Command took {}ms to execute", start_time.elapsed().as_millis()).as_str());
                     return Ok(lock.remove(&query_id).unwrap());
                 }
             }
-            std::thread::sleep(std::time::Duration::from_millis(5));
+            std::thread::sleep(std::time::Duration::from_micros(100));
         }
-        println!("TIMEOUT");
         return Err(PassthruError::ERR_TIMEOUT);
     }
 

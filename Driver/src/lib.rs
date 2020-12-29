@@ -3,10 +3,12 @@ use J2534Common::*;
 mod logger;
 mod comm;
 mod channels;
+mod ioctl;
 use comm::{MacchinaM2};
 mod passthru_drv;
 use logger::log_error;
-use  passthru_drv::*;
+use passthru_drv::*;
+use ioctl::*;
 
 #[cfg(test)]
 mod lib_tests;

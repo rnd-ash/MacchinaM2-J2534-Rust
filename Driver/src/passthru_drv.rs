@@ -1,12 +1,13 @@
 use libc::{c_char};
 use std::{ffi::CString, time::Instant};
 use J2534Common::*;
-use crate::{channels, logger};
+use crate::{channels, ioctl, logger};
 use crate::comm::*;
 use lazy_static::lazy_static;
 use std::sync::Mutex;
 use crate::channels::ChannelComm;
 use crate::logger::*;
+use crate::ioctl::*;
 
 /// J2534 API Version supported - In this case 04.04
 const API_VERSION: &str = "04.04";
@@ -164,34 +165,61 @@ pub fn passthru_connect(device_id: u32, protocol_id: u32, flags: u32, baud_rate:
 }
 
 pub fn passthru_disconnect(channel_id: u32) -> PassthruError {
-    match ChannelComm::destroy_channel(channel_id as i32) {
+    match ChannelComm::destroy_channel(channel_id as u32) {
         Ok(_) => PassthruError::STATUS_NOERROR,
         Err(e) => e
     }
 }
 
 pub fn passthru_ioctl(
-    HandleID: u32,
-    IoctlID: u32,
-    pInput: *mut libc::c_void,
-    pOutput: *mut libc::c_void,
+    channel_id: u32,
+    ioctl_id: u32,
+    input_ptr: *mut libc::c_void,
+    output_ptr: *mut libc::c_void,
 ) -> PassthruError {
-    if IoctlID == J2534Common::IoctlID::READ_VBATT as u32 {
-        logger::log_info(&format!("Getting voltage"));
-        match get_batt_voltage() {
-            Err(code) => {
-                logger::log_warn(&format!("Error retreiving VBatt"));
-                return code;
-            },
-            Ok(v) => {
-                logger::log_info(&format!("Reported voltage: {}V", v));
-                let output: &mut u32 = unsafe { &mut *(pOutput as *mut u32) };
-                *output = v;
-                return PassthruError::STATUS_NOERROR;
+    let ioctl_opt = match IoctlID::from_raw(ioctl_id) {
+        Some(p) => p,
+        None => {
+            log_error(format!("IOCTL Param {:08X} is invalid", ioctl_id).as_str());
+            return PassthruError::ERR_INVALID_IOCTL_ID
+        }
+    };
+
+    match ioctl_opt {
+        IoctlID::READ_VBATT => {
+            if output_ptr.is_null() {
+                log_error("Cannot read battery voltage. Output ptr is null");
+                return PassthruError::ERR_NULL_PARAMETER 
             }
+            ioctl::get_battery(output_ptr as *mut u32)
+        }
+        IoctlID::SET_CONFIG => {
+            if input_ptr.is_null() {
+                log_error("Cannot set config. Input ptr is null");
+                return PassthruError::ERR_NULL_PARAMETER 
+            }
+            ioctl::set_config(channel_id, unsafe { (input_ptr as *mut SConfigList).as_ref().unwrap() })
+        }
+
+        IoctlID::GET_CONFIG => {
+            if input_ptr.is_null() {
+                log_error("Cannot get config. Input ptr is null");
+                return PassthruError::ERR_NULL_PARAMETER 
+            }
+            ioctl::get_config(channel_id, unsafe { (input_ptr as *mut SConfigList).as_ref().unwrap() })
+        }
+
+        _ => {
+            log_error(format!("FIXME: IOCTL Param {} unhandled.", ioctl_opt).as_str());
+            PassthruError::STATUS_NOERROR
         }
     }
-    PassthruError::STATUS_NOERROR 
+
+    /*
+    if IoctlID == J2534Common::IoctlID::READ_VBATT as u32 {
+        
+    }
+    */
 }
 
 /// Sets a channel filter
@@ -283,9 +311,9 @@ pub fn read_msgs(channel_id: u32, msg_ptr: *mut PASSTHRU_MSG, num_msg_ptr: *mut 
         }
         match channels::ChannelComm::read_channel_data(channel_id) {
             Ok(opt) => {
-
                 match opt {
                     Some(msg) => {
+                        log_debug(format!("Channel {} sending data back to application! {}", channel_id, msg).as_str());
                         unsafe { *msg_ptr.offset(i as isize) = msg; }
                         unsafe { *num_msg_ptr += 1 };
                     }

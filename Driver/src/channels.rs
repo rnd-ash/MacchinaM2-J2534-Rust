@@ -8,25 +8,56 @@ use crate::comm::*;
 use byteorder::{LittleEndian, ByteOrder, WriteBytesExt};
 use crate::passthru_drv::set_error_string;
 
-const MAX_CHANNELS: usize = 4;
+lazy_static! {
+    static ref CAN_CHANNEL: RwLock<Option<Channel>> = RwLock::new(None);
+    static ref KLINE_CHANNEL: RwLock<Option<Channel>> = RwLock::new(None);
+    static ref J1850_CHANNEL: RwLock<Option<Channel>> = RwLock::new(None);
+    static ref SCI_CHANNEL: RwLock<Option<Channel>> = RwLock::new(None);
+}
 
-// Same physical 
-const USE_CAN_CHAN_ID: usize = 0;
-// Same physical
-const USE_KLINE_CHAN_ID: usize = 1;
-// Same physical
-const USE_J1850_CHAN_ID: usize = 2;
-// Same physical
-const USE_SCI_CHAN_ID: usize = 3;
 
 // Defined in J2534 spec. Each channel can have up to 10 filters
 const MAX_FILTERS_PER_CHANNEL: usize = 10;
 
-lazy_static! {
-    static ref GLOBAL_CHANNELS: RwLock<Vec<Option<Channel>>> = RwLock::new(vec![None; MAX_CHANNELS]);
+type Result<T> = std::result::Result<T, PassthruError>;
+
+pub enum ChannelID {
+    Can = 0,
+    Kline = 1,
+    J1850 = 2,
+    Sci = 3
 }
 
-type Result<T> = std::result::Result<T, PassthruError>;
+
+impl ChannelID {
+    pub fn get_channel<'a>(&self) -> &'static RwLock<Option<Channel>> {
+        match self {
+            ChannelID::Can => &CAN_CHANNEL,
+            ChannelID::Kline => &KLINE_CHANNEL,
+            ChannelID::J1850 => &J1850_CHANNEL,
+            ChannelID::Sci => &SCI_CHANNEL
+        }
+    }
+
+    pub fn from_u32(id: u32) -> Result<Self> {
+        match id {
+            0 => Ok(ChannelID::Can),
+            1 => Ok(ChannelID::Kline),
+            2 => Ok(ChannelID::J1850),
+            3 => Ok(ChannelID::Sci),
+            _ => Err(PassthruError::ERR_INVALID_CHANNEL_ID)
+        }
+    }
+
+    pub fn from_protocol(id: Protocol) -> Self {
+        match id {
+            Protocol::ISO15765 | Protocol::CAN => ChannelID::Can,
+            Protocol::ISO14230 | Protocol::ISO9141 => ChannelID::Kline,
+            Protocol::J1850PWM | Protocol::J1850VPW => ChannelID::J1850,
+            Protocol::SCI_A_ENGINE | Protocol::SCI_A_TRANS | Protocol::SCI_B_ENGINE | Protocol::SCI_B_TRANS => ChannelID::Sci
+        }
+    }
+}
 
 pub struct ChannelComm{}
 
@@ -35,26 +66,20 @@ impl ChannelComm {
     /// # Returns
     /// Channel ID if operation was OK
     pub fn create_channel(protocol: Protocol, baud_rate: u32, flags: u32) -> Result<u32> {
-        match GLOBAL_CHANNELS.write() {
-            Ok(mut channels) => {
-                let channel_id = match protocol {
-                    Protocol::ISO15765 | Protocol::CAN => USE_CAN_CHAN_ID,
-                    Protocol::ISO14230 | Protocol::ISO9141 => USE_KLINE_CHAN_ID,
-                    Protocol::J1850PWM | Protocol::J1850VPW => USE_J1850_CHAN_ID,
-                    Protocol::SCI_A_ENGINE | Protocol::SCI_A_TRANS | Protocol::SCI_B_ENGINE | Protocol::SCI_B_TRANS => USE_SCI_CHAN_ID
-                };
-                if channels[channel_id].is_none() {
-                    Channel::new(channel_id as u32, protocol, baud_rate, flags) // If ID, create a new channel
+        let protocol_id = ChannelID::from_protocol(protocol);
+        match protocol_id.get_channel().write() {
+            Ok(mut channel) => {
+                if channel.is_some() { // Already occupied!
+                    return Err(PassthruError::ERR_CHANNEL_IN_USE)
+                }
+                Channel::new(protocol_id as u32, protocol, baud_rate, flags) // If ID, create a new channel
                     .and_then(|chan| {
                         // If channel creation OK, set it in the channel list
                         let idx = chan.id;
-                        channels[idx as usize] = Some(chan);
+                        *channel = Some(chan);
                         Ok(idx as u32) // Return the ID
                     })
-                } else {
-                    Err(PassthruError::ERR_CHANNEL_IN_USE)
-                }
-            },
+            }
             Err(e) => {
                 set_error_string(format!("Write guard failed: {}", e));
                 Err(PassthruError::ERR_FAILED)
@@ -62,15 +87,15 @@ impl ChannelComm {
         }
     }
 
-    pub fn destroy_channel(id: i32) -> Result<()> {
-        match GLOBAL_CHANNELS.write() {
-            Ok(mut channels) => {
-                if let Some(mut tmp_channel) = channels[id as usize].take() {
-                    tmp_channel.destroy()
+    pub fn destroy_channel(channel_id: u32) -> Result<()> {
+        match ChannelID::from_u32(channel_id)?.get_channel().write() {
+            Ok(mut channel) => {
+                if let Some(c) = channel.take() {
+                    c.destroy()
                 } else {
                     Err(PassthruError::ERR_INVALID_CHANNEL_ID)
                 }
-            },
+            }
             Err(e) => {
                 set_error_string(format!("Write guard failed: {}", e));
                 Err(PassthruError::ERR_FAILED)
@@ -79,68 +104,76 @@ impl ChannelComm {
     }
  
     pub fn create_channel_filter(channel_id: u32, filter_type: FilterType, mask_bytes: &[u8], pattern_bytes: &[u8], fc_bytes: &[u8]) -> Result<u32> {
-        match GLOBAL_CHANNELS.write() {
-            Ok(mut channels) => {
-                match channels[channel_id as usize] {
-                    Some(ref mut c) => c.add_filter(filter_type, mask_bytes, pattern_bytes, fc_bytes),
-                    None => Err(PassthruError::ERR_INVALID_CHANNEL_ID)
+        match ChannelID::from_u32(channel_id)?.get_channel().write() {
+            Ok(mut channel) => {
+                if let Some(c) = channel.as_mut() {
+                    c.add_filter(filter_type, mask_bytes, pattern_bytes, fc_bytes)
+                } else {
+                    Err(PassthruError::ERR_INVALID_CHANNEL_ID)
                 }
-            },
+            }
             Err(e) => {
                 set_error_string(format!("Write guard failed: {}", e));
                 Err(PassthruError::ERR_FAILED)
             }
-        } 
+        }
     }
+
     pub fn write_channel_data(channel_id: u32, msg: &PASSTHRU_MSG, require_response: bool) -> Result<()> {
-        match GLOBAL_CHANNELS.write() {
-            Ok(mut channels) => {
-                match channels[channel_id as usize] {
-                    Some(ref mut c) => c.transmit_data(msg, require_response),
-                    None => Err(PassthruError::ERR_INVALID_CHANNEL_ID)
+        match ChannelID::from_u32(channel_id)?.get_channel().read() {
+            Ok(channel) => {
+                if let Some(c) = channel.as_ref() {
+                    c.transmit_data(msg, require_response)
+                } else {
+                    Err(PassthruError::ERR_INVALID_CHANNEL_ID)
                 }
-            },
+            }
             Err(e) => {
                 set_error_string(format!("Write guard failed: {}", e));
                 Err(PassthruError::ERR_FAILED)
             }
-        } 
+        }
     }
 
     pub fn read_channel_data(channel_id: u32) -> Result<Option<PASSTHRU_MSG>> {
-        match GLOBAL_CHANNELS.write() {
-            Ok(mut channels) => {
-                match channels[channel_id as usize] {
-                    Some(ref mut c) => Ok(c.pop_rx_queue()),
-                    None => Err(PassthruError::ERR_INVALID_CHANNEL_ID)
-                }
+        let channel = ChannelID::from_u32(channel_id)?.get_channel();
+
+        if let Some(c) = channel.read().unwrap().as_ref() {
+            if c.rx_available() == 0 {
+                return Ok(None)
+            }
+        } else {
+            return Err(PassthruError::ERR_INVALID_CHANNEL_ID)
+        }
+
+        match channel.write() {
+            Ok(mut c) => {
+                Ok(c.as_mut().unwrap().pop_rx_queue())
             },
             Err(e) => {
                 set_error_string(format!("Write guard failed: {}", e));
                 Err(PassthruError::ERR_FAILED)
             }
-        } 
+        }
     }
 
     /// Used by the receiver thread running on the M2 to write data to our Rx buffer
-    pub fn receive_channel_data(msg: &COMM_MSG) {
-        let channel_id = msg.args[0] as u32;
-        match GLOBAL_CHANNELS.write() {
-            Ok(mut channels) => {
-                // Unpack the message
-                let tx_flags = LittleEndian::read_u32(&msg.args[1..5]);
-                let data = &msg.args[5..msg.arg_size as usize];
-                match channels[channel_id as usize] {
-                    Some(ref mut c) => c.on_receive_data(tx_flags, data),
-                    None => {} // Ignore if channel gets deleted
+    pub fn receive_channel_data(msg: &COMM_MSG) -> Result<()> {
+        match ChannelID::from_u32(msg.args[0] as u32)?.get_channel().write() {
+            Ok(mut channel) => {
+                if let Some(c) = channel.as_mut() {
+                    let tx_flags = LittleEndian::read_u32(&msg.args[1..5]);
+                    let data = &msg.args[5..msg.arg_size as usize];
+                    c.on_receive_data(tx_flags, data)
                 }
-            },
-            Err(_) => {
-                log_error(format!("Could not write data to channel {} - Write guard lock failed", channel_id).as_str())
+                Ok(())
             }
-        } 
+            Err(e) => {
+                set_error_string(format!("Write guard failed: {}", e));
+                Err(PassthruError::ERR_FAILED)
+            }
+        }
     }
-
 }
 
 
@@ -259,7 +292,7 @@ impl Channel {
         })
     }
 
-    pub fn destroy(&mut self) -> Result<()> {
+    pub fn destroy(&self) -> Result<()> {
         log_debug(format!("Requesting channel destroy. ID: {}", self.id).as_str());
         let mut dst: Vec<u8> = Vec::new();
         dst.write_u32::<LittleEndian>(self.id).unwrap();
@@ -276,19 +309,19 @@ impl Channel {
         })
     }
 
-    pub fn transmit_data(&mut self, msg: &PASSTHRU_MSG, require_response: bool) -> Result<()> {
-        if msg.protocol_id != self.protocol as u32 {
+    pub fn transmit_data(&self, ptmsg: &PASSTHRU_MSG, require_response: bool) -> Result<()> {
+        if ptmsg.protocol_id != self.protocol as u32 {
             return Err(PassthruError::ERR_MSG_PROTOCOL_ID);
         }
 
         // Build Tx message
         let mut dst: Vec<u8> = Vec::new();
-        for arg in [self.id, msg.tx_flags].iter() {
+        for arg in [self.id, ptmsg.tx_flags].iter() {
             dst.write_u32::<LittleEndian>(*arg).unwrap();
         }
-        dst.extend_from_slice(&msg.data[0..msg.data_size as usize]);
+        dst.extend_from_slice(&ptmsg.data[0..ptmsg.data_size as usize]);
         let msg = COMM_MSG::new_with_args(MsgType::TransmitChannelData, dst.as_mut_slice());
-        log_debug(format!("Channel {} writing message: {}. Response required?: {}", self.id, msg, require_response).as_str());
+        log_debug(format!("Channel {} writing message: {}. Response required?: {}", self.id, ptmsg, require_response).as_str());
         run_on_m2(|dev| {
             if require_response {
                 match dev.write_and_read_ptcmd(msg, 100) {
@@ -309,12 +342,19 @@ impl Channel {
         self.rx_data.pop_front()
     }
 
-    pub fn on_receive_data(&mut self, tx_flags: u32, data: &[u8]) {
+    pub fn rx_available(&self) -> usize {
+        self.rx_data.len()
+    }
+
+    pub fn on_receive_data(&mut self, rx_status: u32, data: &[u8]) {
         if self.rx_data.len() < MAX_QUEUE_MSGS {
             let mut msg = PASSTHRU_MSG::default();
-            msg.tx_flags = tx_flags;
+            msg.data_size = data.len() as u32;
+            msg.rx_status = rx_status;
             msg.protocol_id = self.protocol as u32;
+            msg.data[..data.len()].copy_from_slice(data);
             msg.timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros() as u32;
+            log_debug(format!("Channel {} buffering message. RxStatus: {:08X}, data: {:02X?}", self.id, rx_status, &data).as_str());
             self.rx_data.push_back(msg);
         } else {
             // Data is lost if queue is too big!
@@ -334,11 +374,11 @@ impl Channel {
         Ok(())
     }
 
-    pub fn ioctl_set_config() {
+    pub fn ioctl_set_config(cfg: &SConfig) {
 
     }
 
-    pub fn ioctl_get_config() {
+    pub fn ioctl_get_config(cfg: &SConfig) {
 
     }
 }

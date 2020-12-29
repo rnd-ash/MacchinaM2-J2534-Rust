@@ -7,10 +7,10 @@ use std::sync::{Arc, Mutex};
 use lazy_static::*;
 
 #[cfg(windows)]
-const LOG_PATH: &str = "C:\\Program Files (x86)\\macchina\\passthru\\driver_log.txt";
+const LOG_PATH: &str = "C:\\Program Files (x86)\\macchina\\passthru\\macchina_log.txt";
 
 #[cfg(unix)]
-const LOG_PATH: &str = "driver_log.txt";
+const LOG_PATH: &str = "macchina_log.txt";
 
 lazy_static! {
     static ref LOGGER : Mutex<Logger> = Mutex::new(Logger::new());
