@@ -2,7 +2,6 @@
 #define CHANNEL_H_
 
 #include <Arduino.h>
-#include "due_can.h"
 #include "comm.h"
 #include "j2534_mini.h"
 #include "comm_channels.h"
@@ -17,6 +16,7 @@ void remove_channel(COMM_MSG *msg);
 void channel_loop();
 void delete_channel(Channel*& ptr);
 void add_channel_filter(COMM_MSG* msg);
+void send_data(COMM_MSG *msg);
 
 void create_can_channel(int id, int protocol, int baud, int flags);
 
@@ -26,6 +26,8 @@ void create_can_channel(int id, int protocol, int baud, int flags);
  * back to its idle state
  */
 void reset_all_channels();
+
+
 
 
 #endif

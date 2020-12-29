@@ -1,6 +1,34 @@
 #include "comm_channels.h"
 #include "j2534_mini.h"
 
+// Debug function
+bool debug_send_frame(CAN_FRAME &f) {
+    char buf[80] = {0x00};
+    char *pos = buf;
+    pos += sprintf(pos, "Send frame -> %04X (LEN: %d) [", f.id, f.length);
+    for (int i = 0; i < f.length; i++) {
+        pos+=sprintf(pos, "%02X ", f.data.bytes[i]);
+    }
+    sprintf(pos-1,"]");
+    PCCOMM::log_message(buf);
+    digitalWrite(DS7_GREEN, LOW);
+    bool res = Can0.sendFrame(f);
+    digitalWrite(DS7_GREEN, HIGH);
+    return res;
+}
+
+void debug_read_frame(CAN_FRAME &f) {
+    char buf[80] = {0x00};
+    char *pos = buf;
+    pos += sprintf(pos, "Read frame -> %04X (LEN: %d) [", f.id, f.length);
+    for (int i = 0; i < f.length; i++) {
+        pos+=sprintf(pos, "%02X ", f.data.bytes[i]);
+    }
+    sprintf(pos-1,"]");
+    PCCOMM::log_message(buf);
+}
+
+
 void CanChannel::ioctl(COMM_MSG *msg) {
     PCCOMM::respond_err(MSG_IOCTL, ERR_FAILED,"Not implemented");
 }
@@ -11,15 +39,15 @@ bool CanChannel::setup(int id, int protocol, int baud, int flags) {
          PCCOMM::respond_err(MSG_OPEN_CHANNEL, ERR_FAILED, "CAN Controller setup failed!");
          return false;
     }
+    //Can0.reset_all_mailbox();
     if (flags & CAN_29BIT_ID > 0) { // extended addressing, 
         PCCOMM::log_message("CAN Extended enabled");
         this->isExtended = true;
     }
-
-    // Can is OK, now blank set all mailboxes to a block state by default
-    for (int i = 0; i < 7; i++) { // Extended boxes
-        Can0.setRXFilter(i, 0x0000, 0xFFFF, isExtended);
+    for (int i = 0; i < 7; i++) {
+        Can0.setRXFilter(i, 0xFFFF, 0x0000, isExtended);
     }
+    // Can is OK, now blank set all mailboxes to a block state by default
     digitalWrite(DS3, LOW); // Enable the light
     this->channel_id = id;
     this->f.length = 0;
@@ -60,70 +88,88 @@ void CanChannel::addFilter(int type, int filter_id, char* mask, char* pattern, c
         ptn_id <<= 8;
         ptn_id |= pattern[i];
     }
-    char buf[20];
-    sprintf(buf, "%04X %04X", ptn_id, mask_id);
-    PCCOMM::log_message(buf);
+
     if (type == BLOCK_FILTER) { // Block filter. Set the CAN Filter ID to be open, and then we will block it in software
         Can0.setRXFilter(filter_id, 0x0000, 0x0000, isExtended); // Open the mailbox filter to everything
         blocking_filters[filter_id] = true; // Mark this as yes for the update function
-        memcpy(&blocking_filters[filter_id], &ptn_id, 4); // Set the pattern ID for blocking
-        memcpy(&blocking_filter_masks[filter_id], &mask_id, 4); // Set the mask ID for blocking
     } else { // Pass filter, use hardware filter
         Can0.setRXFilter(filter_id, ptn_id, mask_id, isExtended);
+        blocking_filters[filter_id] = false;
+
     }
+    patterns[filter_id] = ptn_id;
+    masks[filter_id] = mask_id;
     used_mailboxes[filter_id] = true;
     PCCOMM::respond_ok(MSG_SET_CHAN_FILT, nullptr, 0);
 }
 
 void CanChannel::update() {
-    for (int i = 0; i < 7; i++) {
-        if (used_mailboxes[i] == true) { // We should check this mailbox
-            Can0.mailbox_read(i, &f);
-            if (f.length != 0) {
-                if (blocking_filters[i] == true) { // Blocking filter, do the pattern matching in software
-                    if (blocking_filter_masks[i] & f.id != blocking_filters[i]) {
-                        char buf[f.length + 4];
-                        memcpy(&buf[0], &f.id, 4); // Copy ID
-                        memcpy(&buf[4], &f.data.bytes[0], f.length); // Copy data
-                        PCCOMM::tx_data(this->channel_id, buf, f.length+4);
-                    }
-                } else { // Pass filter, simply send it to the PC!
-                    char buf[f.length + 4];
-                    memcpy(&buf[0], &f.id, 4);
-                    memcpy(&buf[4], &f.data.bytes[0], f.length); // Copy ID
-                    PCCOMM::tx_data(this->channel_id, buf, f.length+4); // Copy data
+    if (Can0.read(f)) {
+        for (int i = 0; i < 7; i++) { // Check all our filters in use
+            if (used_mailboxes[i] == true) { // We should this filter
+                bool send_frame = false;
+                if (blocking_filters[i] == true) { // Check block filter
+                    send_frame = masks[i] & f.id != patterns[i]; // Block filter check
+                } else { // Check pass filter
+                    send_frame = masks[i] & f.id == patterns[i]; // Pass filter check
                 }
-                f.length = 0x0; // Reset to this so that we don't read it again and again...
+                if (send_frame) { // Frame should be sent to the PC
+                    char buf[f.length + 4];
+                    // TODO - Rx Flags for CAN - Although i don't think they are needed, so leave them 0x0000
+                    uint32_t rx_status = 0x0000;
+
+                    memcpy(&buf[0], &f.id, 4); // Copy CAN ID
+                    memcpy(&buf[4], &f.data.bytes[0], f.length);  // Copy CAN Data
+                    PCCOMM::send_rx_data(this->channel_id, rx_status, buf, f.length+4); // Tx to PC
+                }
             }
         }
     }
 }
 
 void CanChannel::removeFilter(int id) {
-
+    if (this->used_mailboxes[id] == true) {
+        this->used_mailboxes[id] = false;
+        this->masks[id] = 0;
+        this->patterns[id] = 0;
+        this->blocking_filters[id] = false;
+        CustomCan::disableCanFilter(id);
+        PCCOMM::respond_ok(MSG_REM_CHAN_FILT, nullptr, 0);
+    } else {
+        PCCOMM::respond_err(MSG_REM_CHAN_FILT, ERR_INVALID_MSG_ID, nullptr);
+    }
 }
 
 void CanChannel::destroy() {
+    
     // Set all mailboxes to a blocked state
     for (int i = 0; i < 7; i++) { // Extended boxes
-        Can0.setRXFilter(i, 0x0000, 0xFFFF, isExtended);
+        Can0.setRXFilter(i, 0xFFFF, 0x0000, isExtended);
+        this->used_mailboxes[i] = false;
     }
     Can0.disable(); // Bye bye CAN0
     digitalWrite(DS3, HIGH); // Disable the light
 }
 
+void CanChannel::on_frame_receive(CAN_FRAME *f) {
+    
+}
+
 /**
  * Macchina will NOT respond to this request, just send and leave it
  */
-void CanChannel::sendMsg(char* data, int data_size) {
+void CanChannel::sendMsg(uint32_t tx_flags, char* data, int data_size, bool respond) {
     // First 4 bytes are CAN ID, followed by the CAN Data
     CAN_FRAME f;
     f.length = data_size - 4;
-    memcpy(&f.id, &data[0], 4);
+    f.id = data[0] << 24 | data[1] << 16 | data[2] << 8 | data[3] << 0;
     memcpy(&f.data.bytes[0], &data[4], data_size-4);
     digitalWrite(DS7_GREEN, LOW);
     Can0.sendFrame(f);
     digitalWrite(DS7_GREEN, HIGH);
+    if (respond) {
+        PCCOMM::respond_ok(MSG_TX_CHAN_DATA, nullptr, 0);
+    }
 }
 
 void ISO15765Channel::ioctl(COMM_MSG *msg) {
@@ -137,15 +183,21 @@ bool ISO15765Channel::setup(int id, int protocol, int baud, int flags) {
          return false;
     }
     if (flags & CAN_29BIT_ID > 0) { // extended addressing, 
+        PCCOMM::log_message("Extended CAN detected!");
         this->isExtended = true;
+    } else {
+        PCCOMM::log_message("Standard CAN detected!");
+        this->isExtended = false;
     }
 
-    // Can is OK, now blank set all mailboxes to a block state by default
-    for (int i = 0; i < 7; i++) { // Extended boxes
-        Can0.setRXFilter(i, 0x0000, 0xFFFF, isExtended);
-    }
+    CustomCan::enableCanBus(baud);
     digitalWrite(DS3, LOW); // Enable the light
     this->channel_id = id;
+
+    this->txPayload = {nullptr, 0, 0};
+    this->rxPayload = {nullptr, 0, 0};
+    this->isSending = false;
+    this->isReceiving = false;
     return true;
 }
 
@@ -166,12 +218,6 @@ void ISO15765Channel::addFilter(int type, int filter_id, char* mask, char* patte
         PCCOMM::respond_err(MSG_SET_CHAN_FILT, ERR_FAILED, "Flowcontrol length not 4");
         return;
     }
-    uint32_t mask_u32;
-    uint32_t pattern_u32;
-    uint32_t flowcontrol_u32;
-    memcpy(&mask_u32, mask, 4);
-    memcpy(&pattern_u32, pattern, 4);
-    memcpy(&flowcontrol_u32, flowcontrol, 4);
     if (filter_id >= 7) {
         PCCOMM::respond_err(MSG_SET_CHAN_FILT, ERR_EXCEEDED_LIMIT, nullptr);
         return;
@@ -180,12 +226,16 @@ void ISO15765Channel::addFilter(int type, int filter_id, char* mask, char* patte
         PCCOMM::respond_err(MSG_SET_CHAN_FILT, ERR_FAILED, "Filter ID already in use");
         return;
     }
+
+    uint32_t mask_u32 = mask[0] << 24 | mask[1] << 16 | mask[2] << 8 | mask[3];
+    uint32_t pattern_u32 = pattern[0] << 24 | pattern[1] << 16 | pattern[2] << 8 | pattern[3];
+    uint32_t flowcontrol_u32 = flowcontrol[0] << 24 | flowcontrol[1] << 16 | flowcontrol[2] << 8 | flowcontrol[3];
     // Filter is free, set it!
     this->used_mailboxes[filter_id] = true;
+    this->mask_ids[filter_id] = mask_u32;
+    this->pattern_ids[filter_id] = pattern_u32;
     this->flowcontrol_ids[filter_id] = flowcontrol_u32;
-    Can0.setRXFilter(filter_id, pattern_u32, mask_u32, isExtended);
-
-    // Filter set! respond with the just OK
+    CustomCan::enableCanFilter(filter_id, pattern_u32, mask_u32, isExtended);
     PCCOMM::respond_ok(MSG_SET_CHAN_FILT, nullptr, 0);
 }
 
@@ -193,7 +243,7 @@ void ISO15765Channel::removeFilter(int id) {
     if (this->used_mailboxes[id] == true) {
         this->used_mailboxes[id] = false;
         this->flowcontrol_ids[id] = 0x00;
-        Can0.setRXFilter(id, 0x0000, 0xFFFF, this->isExtended);
+        CustomCan::disableCanFilter(id);
         PCCOMM::respond_ok(MSG_REM_CHAN_FILT, nullptr, 0);
     } else {
         PCCOMM::respond_err(MSG_REM_CHAN_FILT, ERR_FAILED, "Filter does not exist!");
@@ -201,35 +251,183 @@ void ISO15765Channel::removeFilter(int id) {
 }
 
 void ISO15765Channel::destroy() {
-    // Set all mailboxes to a blocked state
-    for (int i = 0; i < 7; i++) { // Extended boxes
-        Can0.setRXFilter(i, 0x0000, 0xFFFF, isExtended);
-    }
-    Can0.disable(); // Bye bye CAN0
+    CustomCan::disableCanBus();
     digitalWrite(DS3, HIGH); // Disable the light
 }
 
 void ISO15765Channel::update() {
+    for (int i = 0; i < 7; i++) {
+        if (used_mailboxes[i] == true) {
+            if (CustomCan::receiveFrame(i, &f)) {
+                debug_read_frame(f);
+                switch(f.data.bytes[0] & 0xF0) {
+                case 0x00:
+                    tx_single_frame(&f);
+                    break;
+                case 0x10:
+                    send_ff_indication(&f, i);
+                    break;
+                case 0x20:
+                    tx_multi_frame(&f, i);
+                    break;
+                case 0x30:
+                    PCCOMM::log_message("FIXME. Cannot process incoming flow control messages");
+                    break;
+                default:
+                    char buf[70];
+                    sprintf(buf, "CAN ID %04X invalid IOS-TP PCI: %02X. Discarding frame", f.id, f.data.bytes[0]);
+                    PCCOMM::log_message(buf);
+                    break;
+                }
+            }
+        }
+    }
+    if (isSending) {
 
+    }
 }
 
-void ISO15765Channel::sendMsg(char* data, int data_size) {
-    if (this->isSending) {
-        PCCOMM::respond_err(MSG_TX_CHAN_DATA, ERR_BUFFER_FULL, nullptr);
+
+void ISO15765Channel::tx_single_frame(CAN_FRAME *read) {
+    uint8_t size = read->data.bytes[0] + 4;
+    char* buf = new char[size];
+    // Copy CAN ID
+    buf[0] = read->id >> 24;
+    buf[1] = read->id >> 16;
+    buf[2] = read->id >> 8;
+    buf[3] = read->id >> 0;
+    memcpy(&buf[4], &read->data.bytes[1], read->data.bytes[0]);
+    PCCOMM::send_rx_data(this->channel_id, 0x0000, buf, size);
+    delete[] buf;
+}
+
+
+void ISO15765Channel::tx_multi_frame(CAN_FRAME *read, int id) {
+    if (!this->isReceiving) {
+        PCCOMM::log_message("Multi frame message received but not start frame!?");
         return;
     }
-    CAN_FRAME write;
+    uint8_t max_copy = min(rxPayload.payloadSize - rxPayload.payloadPos, 7); // Up to 7 bytes
+    memcpy(&rxPayload.payload[rxPayload.payloadPos] ,&read->data.bytes[1], max_copy);
+
+    rxPayload.payloadPos += max_copy;
+    if (rxPayload.payloadPos >= rxPayload.payloadSize) { // Got all our data!
+        // Send the payload to the PC
+        PCCOMM::send_rx_data(this->channel_id, 0x0000, rxPayload.payload, rxPayload.payloadSize);
+        // Now delete the old payload
+        delete[] this->rxPayload.payload;
+        this->isReceiving = false;
+    }
+}
+
+void ISO15765Channel::send_ff_indication(CAN_FRAME *read, int id) {
+    uint32_t request_id = read->id;
+    // Send the flow control message back to the ECU
+    // TODO OBIDE BY IOCTL BS AND MIN_ST
+    f.id = this->flowcontrol_ids[id];
+    if (f.id == 0) {
+        char buf[45] = {0x00};
+        sprintf(buf, "Error. CAN ID %04X has no response ID", request_id);
+        PCCOMM::log_message(buf);
+        return;
+    }
+    if (this->isReceiving) {
+        // Error already trying to receive another payload!
+        PCCOMM::log_message("Already trying to receive another ISO-15765 payload!?");
+        return;
+    }
+
+    char buf[55] = {0x00};
+    sprintf(buf, "Start of MF MSG. CID %04X. Expected size: %d", request_id, read->data.bytes[1]);
+    PCCOMM::log_message(buf);
+    // Now allocate memory for the buffer!
+    this->rxPayload.payload = new char[read->data.bytes[1] + 4]; // +4 for CAN ID
+    this->rxPayload.payloadSize = read->data.bytes[1] + 4;
+    this->rxPayload.payloadPos = 10; // Always for first frame
+    memcpy(&rxPayload.payload[4] ,&read->data.bytes[2], 6); // Copy the first 6 bytes (Start at 4 for CAN ID)
+    this->rxPayload.payload[0] = request_id >> 24;
+    this->rxPayload.payload[1] = request_id >> 16;
+    this->rxPayload.payload[2] = request_id >> 8;
+    this->rxPayload.payload[3] = request_id >> 0;
+    this->isReceiving = true;
+
+
+    // Now create the flow control frame to send back to the application
+    f.length = 8;
+    f.data.bytes[0] = 0x30;
+    f.data.bytes[1] = 8; // BLOCK SIZE
+    f.data.bytes[2] = 0x02; // ST_MIN
+    Can0.sendFrame(f);
+    // Send the first frame indication back to the user application
+    // 4 additional bytes should be sent which represents the Can ID of the message
+    char* buf2 = new char[4];
+    // Copy CAN ID
+    buf2[0] = request_id >> 24;
+    buf2[1] = request_id >> 16;
+    buf2[2] = request_id >> 8;
+    buf2[3] = request_id >> 0;
+    PCCOMM::send_rx_data(this->channel_id, ISO15765_FIRST_FRAME, buf2, 4);
+    delete[] buf2;
+}
+
+void ISO15765Channel::sendMsg(uint32_t tx_flags, char* data, int data_size, bool respond) {
+    if (this->isSending) {
+        if (respond) {
+            PCCOMM::respond_err(MSG_TX_CHAN_DATA, ERR_BUFFER_FULL, nullptr);
+        } else {
+            PCCOMM::log_message("Cannot send. IOS15765 is already busy");
+        }
+        return;
+    }
     if (data_size <= 11) { // one frame!
-        write.extended = this->isExtended;
-        write.length = 8;
-        write.data.bytes[0] = data_size - 4; // PCI (-4 as first 4 bytes are CID)
-        write.priority = 4; // Balanced priority
-        memcpy(&write.id, data, 4); // Copy CID
-        memcpy(&write.data.bytes[1], &data[4], data_size-4);
-        Can0.sendFrame(write);
-        PCCOMM::respond_ok(MSG_TX_CHAN_DATA, nullptr, 0);
+        f.extended = this->isExtended;
+        f.priority = 4; // Balanced priority
+        f.length = 8;
+        f.id = data[0] << 24 | data[1] << 16 | data[2] << 8 | data[3];
+        f.rtr = false;
+        f.data.bytes[0] = data_size - 4; // First byte is the length of the ISO message
+        memcpy(&f.data.bytes[1], &data[4], data_size-4); // Copy data to bytes [1] and beyond
+        if (!debug_send_frame(f)) {
+            if (respond) {
+                PCCOMM::respond_err(MSG_TX_CHAN_DATA, ERR_FAILED, "CAN Tx failed");
+            } else {
+                PCCOMM::log_message("Error sending ISO-TP frame. Canbus Tx failed");
+            }
+        } else {
+            if (respond) {
+                PCCOMM::respond_ok(MSG_TX_CHAN_DATA, nullptr, 0);
+            }
+        }
+        if (respond) {
+            
+        }
     } else {
         // TODO Multi frame data write
-        PCCOMM::respond_err(MSG_TX_CHAN_DATA, ERR_FAILED, "Multi frame CAN Not supported");
+        if (respond) {
+            PCCOMM::respond_err(MSG_TX_CHAN_DATA, ERR_FAILED, "Multi frame CAN Not supported");
+            f.extended = this->isExtended;
+            f.priority = 4; // Balanced priority
+            f.length = 8;
+            f.id = data[0] << 24 | data[1] << 16 | data[2] << 8 | data[3];
+            f.rtr = false;
+            f.data.bytes[0] = 0x10;
+            f.data.bytes[1] = data_size - 4; // First byte is the length of the ISO message
+            memcpy(&f.data.bytes[2], &data[4], 6); // Copy data to bytes [1] and beyond
+            this->clear_to_send = false;
+            this->txPayload = isoPayload {
+                // Just copy the data, ignore the CID
+                new char[data_size-4],
+                data_size - 4,
+                6 // pos 6
+
+            };
+            memcpy(&txPayload.payload[0], &data[4], data_size-4); // Copy the rest of the payload to our temp buffer
+            digitalWrite(DS7_GREEN, LOW);
+            debug_send_frame(f);
+            digitalWrite(DS7_GREEN, HIGH);
+            if (respond) {
+                PCCOMM::respond_ok(MSG_TX_CHAN_DATA, nullptr, 0);
+            }
+        }
     }
 }

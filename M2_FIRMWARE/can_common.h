@@ -81,7 +81,7 @@ typedef union {
         uint32_t high;
     };
     struct {
-        uint16_t s0;
+        uint16_t s0;<
         uint16_t s1;
         uint16_t s2;
         uint16_t s3;

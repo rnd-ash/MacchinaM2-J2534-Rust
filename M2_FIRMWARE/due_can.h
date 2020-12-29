@@ -63,8 +63,8 @@
 #define CAN_MAILBOX_RX_OVER           0x02  //! Message overwriting happens or there're messages lost in different receive modes.
 #define CAN_MAILBOX_RX_NEED_RD_AGAIN  0x04  //! Application needs to re-read the data register in Receive with Overwrite mode.
 
-#define SIZE_RX_BUFFER	32 //RX incoming ring buffer is this big
-#define SIZE_TX_BUFFER	16 //TX ring buffer is this big
+#define SIZE_RX_BUFFER	2 //RX incoming ring buffer is this big
+#define SIZE_TX_BUFFER	8 //TX ring buffer is this big
 
 	/** Define the timemark mask. */
 #define TIMEMARK_MASK              0x0000ffff

@@ -55,4 +55,27 @@
 #define BLOCK_FILTER        0x02
 #define FLOW_CONTROL_FILTER 0x03
 
+
+// Tx flags
+#define	SCI_TX_VOLTAGE		0x00800000	// SCI programming: 0 = do not apply voltage after transmitting message, 1 = apply voltage(20V) after transmitting message
+#define	SCI_MODE		    0x00400000
+#define	WAIT_P3_MIN_ONLY	0x00000200
+#define	CAN_29BIT_ID		0x00000100	// CAN ID Type: 0 = 11-bit, 1 = 29-bit
+#define	CAN_EXTENDED_ID		0x00000100
+#define	ISO15765_ADDR_TYPE	0x00000080	// ISO15765-2 Addressing mode: 0 = No extended address, 1 = Extended address is first byte following the CAN ID
+#define	ISO15765_EXT_ADDR	0x00000080
+#define	ISO15765_FRAME_PAD	0x00000040	// ISO15765-2 Frame Pad mode: 0 = No frame padding, 1 = Zero pad FlowControl, Single and Last ConsecutiveFrame to full CAN frame size.
+#define	TX_NORMAL_TRANSMIT	0x00000000
+
+// Rx status flags:
+#define	CAN_29BIT_ID		    0x00000100	// CAN ID Type: 0 = 11-bit, 1 = 29-bit
+#define	ISO15765_ADDR_TYPE	    0x00000080
+#define	ISO15765_PADDING_ERROR	0x00000010
+#define	TX_DONE			        0x00000008
+#define	RX_BREAK		        0x00000004	// Receive Break: 0 = No Break indication, 1 = Break indication present
+#define	ISO15765_FIRST_FRAME	0x00000002	// ISO15765-2 only: 0 = No First Frame indication, 1 = First Frame indication
+#define	START_OF_MESSAGE	    0x00000002	// ISO15765-2 only: 0 = No First Frame indication, 1 = First Frame indication
+#define	TX_MSG_TYPE		        0x00000001	// Receive Indication/Transmit Confirmation: 0 = Rx Frame indication, 1 = Tx Frame confirmation
+
+
 #endif

@@ -1,7 +1,5 @@
 #include "channel.h"
 
-
-
 Channel* canChannel = nullptr; // Channel for physical canbus link
 Channel* klineChannel = nullptr; // Channel for physical kline line
 
@@ -166,4 +164,35 @@ void add_channel_filter(COMM_MSG* msg) {
     if (flowcontrol != nullptr) {
         delete[] flowcontrol;
     }
+}
+
+void send_data(COMM_MSG *msg) {
+    bool require_response = msg->msg_id != 0x00;
+    uint32_t channel_id;
+    uint32_t tx_flags;
+
+    uint32_t data_size = msg->arg_size - 8;
+    char* buf = new char[data_size];
+
+    memcpy(&channel_id, &msg->args[0], 4);
+    memcpy(&tx_flags, &msg->args[4], 4);
+    memcpy(&buf[0], &msg->args[8], data_size);
+    if (channel_id == CAN_CHANNEL_ID) {
+        if (canChannel != nullptr) {
+            canChannel->sendMsg(tx_flags, buf, data_size, require_response);
+        } else {
+            if (require_response) {
+                PCCOMM::respond_err(MSG_TX_CHAN_DATA, ERR_INVALID_CHANNEL_ID, nullptr);
+            } else {
+                PCCOMM::log_message("Cannot send, Channel null!");
+            }
+        }
+    } else {
+        if (require_response) {
+             PCCOMM::respond_err(MSG_TX_CHAN_DATA, ERR_FAILED, "Tx data not implemented for this protocol");
+        } else {
+            PCCOMM::log_message("Cannot send, not implemented!");
+        }
+    }
+    delete[] buf;
 }

@@ -81,13 +81,14 @@ namespace PCCOMM {
         send_message(&res);
     }
 
-    void tx_data(uint8_t channel_id, char* data, uint16_t data_len) {
+    void send_rx_data(uint8_t channel_id, uint32_t rx_status, char* data, uint16_t data_len) {
         memset(&res, 0x00, sizeof(COMM_MSG));
-        res.msg_type = MSG_TX_CHAN_DATA;
-        res.arg_size = 1 + min(data_len, COMM_MSG_ARG_SIZE);
+        res.msg_type = MSG_RX_CHAN_DATA;
+        res.arg_size = 5 + min(data_len, COMM_MSG_ARG_SIZE);
         res.args[0] = channel_id;
         res.msg_id = 0x00;
-        memcpy(&res.args[1], data, res.arg_size-1);
+        memcpy(&res.args[1], &rx_status, 4);
+        memcpy(&res.args[5], data, res.arg_size-5);
         digitalWrite(DS7_GREEN, LOW);
         send_message(&res);
         digitalWrite(DS7_GREEN, HIGH);

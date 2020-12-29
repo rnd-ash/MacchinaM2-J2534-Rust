@@ -37,7 +37,7 @@ namespace PCCOMM {
 
     void respond_ok(uint8_t op, uint8_t* args, uint16_t arg_size);
     void respond_err(uint8_t op, uint8_t error_id, char* txt);
-    void tx_data(uint8_t channel_id, char* data, uint16_t data_len);
+    void send_rx_data(uint8_t channel_id, uint32_t rx_status, char* data, uint16_t data_len);
     void reset();
 }
 

@@ -74,6 +74,8 @@ void get_fw_version(COMM_MSG *msg) {
   PCCOMM::respond_ok(MSG_GET_FW_VERSION, (uint8_t*)&FW_VERSION, strlen(FW_VERSION));
 }
 
+unsigned long lastPing = millis();
+
 void loop() {
   if (PCCOMM::read_message(&msg)) {
     switch (msg.msg_type)
@@ -95,6 +97,9 @@ void loop() {
     case MSG_SET_CHAN_FILT:
       add_channel_filter(&msg);
       break;
+    case MSG_TX_CHAN_DATA:
+      send_data(&msg);
+      break;
     case MSG_CLOSE_CHANNEL:
       remove_channel(&msg);
       break;
@@ -104,6 +109,10 @@ void loop() {
     default:
       break;
     }
+  }
+  if (millis() - lastPing > 1000 && isConnected) {
+    lastPing = millis();
+    PCCOMM::log_message("PING!");
   }
   channel_loop();
 }
