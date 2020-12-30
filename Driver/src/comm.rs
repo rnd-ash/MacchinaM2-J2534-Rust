@@ -81,9 +81,9 @@ fn get_comm_port() -> Option<String> {
 
 pub type PTResult<T> = std::result::Result<T, PassthruError>;
 pub fn run_on_m2<T, F: FnOnce(&MacchinaM2) -> PTResult<T>>(op: F) -> PTResult<T> {
-    match M2.write().as_deref_mut() {
+    match M2.read() {
         Ok(d) => {
-            match d {
+            match d.as_ref() {
                 Some(dev) => op(dev),
                 None => Err(PassthruError::ERR_DEVICE_NOT_CONNECTED)
             }
