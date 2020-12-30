@@ -18,8 +18,6 @@ use serde_json;
 
 #[cfg(windows)]
 use winreg::{RegKey, RegValue, enums::HKEY_LOCAL_MACHINE};
-#[cfg(windows)]
-use winapi::{shared::ntdef::HANDLE, um::{commapi::{GetCommState, PurgeComm, SetCommState}, fileapi::{CreateFileW, OPEN_EXISTING}, handleapi::INVALID_HANDLE_VALUE, winbase::{CBR_115200, DCB, FILE_FLAG_OVERLAPPED, NOPARITY, ONESTOPBIT, PURGE_RXCLEAR, PURGE_TXCLEAR}, winnt::{FILE_ATTRIBUTE_NORMAL, GENERIC_READ, GENERIC_WRITE}}};
 
 lazy_static! {
     pub static ref M2: RwLock<Option<MacchinaM2>> = RwLock::new(None);
@@ -67,10 +65,10 @@ fn get_comm_port() -> Option<String> {
 #[cfg(windows)]
 fn get_comm_port() -> Option<String> {
     if let Ok(reg) = RegKey::predef(HKEY_LOCAL_MACHINE).open_subkey("SOFTWARE\\WOW6432Node\\PassThruSupport.04.04\\Macchina-Passthru") {
-        logger::log_info("Found regkey");
+        logger::log_info_str("Found regkey");
         return match reg.get_value("COM-PORT") {
             Ok(s) => {
-                logger::log_info(format!("Com port is {}", s).as_str());
+                logger::log_info(format!("Com port is {}", s));
                 Some(s)
             },
             Err(_) => None
@@ -130,10 +128,10 @@ impl MacchinaM2 {
         // Use a 16KB Buffer
         let handler = Some(spawn(move || {
             let mut read_buffer: [u8; COMM_MSG_SIZE * 4] = [0x00; COMM_MSG_SIZE * 4];
-            logger::log_debug("M2 receiver thread starting!");
+            logger::log_debug_str("M2 receiver thread starting!");
             let msg = CommMsg::new_with_args(MsgType::StatusMsg, &[0x01]);
             if port.write_all(&msg.to_slice()).is_err() {
-                logger::log_error("Timeout writing init struct!");
+                logger::log_error_str("Timeout writing init struct!");
                 is_running_t.store(false, Ordering::Relaxed);
                 return;
             }
@@ -152,12 +150,9 @@ impl MacchinaM2 {
                         let msg = CommMsg::from_vec(&read_buffer[0..COMM_MSG_SIZE]);
                         read_buffer.rotate_right(COMM_MSG_SIZE);
                         match msg.msg_type {
-                            MsgType::LogMsg => { logger::log_m2(String::from_utf8(Vec::from(msg.args)).unwrap().as_str()) },
+                            MsgType::LogMsg => { logger::log_m2_msg(String::from_utf8(Vec::from(msg.args)).unwrap()) },
                             MsgType::ReceiveChannelData => { channels::ChannelComm::receive_channel_data(&msg); },
-                            _ => {
-                                logger::log_debug(format!("Read message: {}", &msg).as_str());
-                                rx_queue_t.write().unwrap().insert(msg.msg_id, msg);
-                            }
+                            _ => { rx_queue_t.write().unwrap().insert(msg.msg_id, msg); }
                         }
                     }
                 } else {
@@ -166,7 +161,7 @@ impl MacchinaM2 {
             }
             let msg = CommMsg::new_with_args(MsgType::StatusMsg, &[0x00]);
             port.write_all(&msg.to_slice());
-            logger::log_debug("M2 receiver thread exiting");
+            logger::log_debug_str("M2 receiver thread exiting");
         }));
         std::thread::sleep(std::time::Duration::from_millis(50));
         if is_running.load(Ordering::Relaxed) == false {
@@ -224,15 +219,15 @@ impl MacchinaM2 {
         let query_id = get_id(); // Set a unique ID, M2 is now forced to respond
         s.msg_id = query_id;
         if let Err(e) = self.tx_send_queue.send(s) {
-            log_error(format!("Error writing comm msg to queue {}", e).as_str());
+            log_error(format!("Error writing comm msg to queue {}", e));
             return Err(PassthruError::ERR_FAILED);
         }
-        logger::log_debug(format!("Write data: {}", &s).as_str());
+        logger::log_debug(format!("Write data: {}", &s));
         let start_time = std::time::Instant::now();
         while start_time.elapsed().as_millis() <= 1000 {
             if let Ok(mut lock) = self.rx_queue.write() {
                 if lock.contains_key(&query_id) {
-                    log_debug(format!("Command took {}ms to execute", start_time.elapsed().as_millis()).as_str());
+                    log_debug(format!("Command took {}ms to execute", start_time.elapsed().as_millis()));
                     return Ok(lock.remove(&query_id).unwrap());
                 }
             }
@@ -297,7 +292,7 @@ impl MsgType {
             #[cfg(test)]
             0xFF => MsgType::TestMessage,
             _ => {
-                logger::log_warn(format!("Unknown message type {:02X}", s).as_str());
+                logger::log_warn(format!("Unknown message type {:02X}", s));
                 MsgType::Unknown
             }
         }
@@ -369,7 +364,7 @@ impl CommMsg {
 
     pub fn put_args(&mut self, args: &[u8]) {
         if args.len() > COMM_MSG_ARG_SIZE {
-            logger::log_warn(format!("Input args is {} larger than payload size, truncating", args.len() - COMM_MSG_ARG_SIZE).as_str());
+            logger::log_warn(format!("Input args is {} larger than payload size, truncating", args.len() - COMM_MSG_ARG_SIZE));
         }
         (0..std::cmp::min(COMM_MSG_ARG_SIZE, args.len())).for_each(|i| {
             self.args[i] = args[i];

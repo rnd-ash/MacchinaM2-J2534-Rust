@@ -199,12 +199,12 @@ impl Channel {
         for arg in [id, protocol as u32, baud_rate, flags].iter() {
             dst.write_u32::<LittleEndian>(*arg).unwrap();
         }
-        log_debug(format!("Requesting channel open. ID: {}, Protocol: {:?}, baud: {}, flags: 0x{:04X}", id, protocol, baud_rate, flags).as_str());
+        log_debug(format!("Requesting channel open. ID: {}, Protocol: {:?}, baud: {}, flags: 0x{:04X}", id, protocol, baud_rate, flags));
         let msg = CommMsg::new_with_args(MsgType::OpenChannel, dst.as_mut_slice());
         run_on_m2(|dev |{
             match dev.write_and_read_ptcmd(msg, 100) {
                 M2Resp::Ok(_) => {
-                    log_debug("M2 opened channel!");
+                    log_debug_str("M2 opened channel!");
                     Ok(Self{
                         id, 
                         protocol, 
@@ -216,7 +216,7 @@ impl Channel {
                     })
                 },
                 M2Resp::Err{status, string} => {
-                    log_error(format!("M2 failed to open channel {} (Status {:?}): {}", id, status, string).as_str());
+                    log_error(format!("M2 failed to open channel {} (Status {:?}): {}", id, status, string));
                     set_error_string(string);
                     Err(status)
                 }
@@ -247,17 +247,17 @@ impl Channel {
         dst.extend_from_slice(mask_bytes);
         dst.extend_from_slice(pattern_bytes);
         dst.extend_from_slice(fc_bytes);
-        log_debug(format!("Setting {} (ID: {}) on channel {}. Mask: {:02X?}, Pattern: {:02X?}, FlowControl: {:02X?}", filter_type, self.id, free_id, mask_bytes, pattern_bytes, fc_bytes).as_str());
+        log_debug(format!("Setting {} (ID: {}) on channel {}. Mask: {:02X?}, Pattern: {:02X?}, FlowControl: {:02X?}", filter_type, self.id, free_id, mask_bytes, pattern_bytes, fc_bytes));
         let msg = CommMsg::new_with_args(MsgType::SetChannelFilter, dst.as_mut_slice());
         run_on_m2(|dev |{
             match dev.write_and_read_ptcmd(msg, 250) {
                 M2Resp::Ok(_) => {
-                    log_debug(format!("M2 set filter {} on channel {}!", free_id, self.id).as_str());
+                    log_debug(format!("M2 set filter {} on channel {}!", free_id, self.id));
                     self.filters[free_id] = 1; // Mark it as used
                     Ok(free_id as u32)
                 },
                 M2Resp::Err{status, string} => {
-                    log_error(format!("M2 failed to set filter {} on channel {} (Status {:?}): {}", free_id, self.id, status, string).as_str());
+                    log_error(format!("M2 failed to set filter {} on channel {} (Status {:?}): {}", free_id, self.id, status, string));
                     set_error_string(string);
                     Err(status)
                 }
@@ -273,17 +273,17 @@ impl Channel {
         for arg in [self.id, id as u32].iter() {
             dst.write_u32::<LittleEndian>(*arg).unwrap();
         }
-        log_debug(format!("Closing channel {} filter {}", self.id, id).as_str());
+        log_debug(format!("Closing channel {} filter {}", self.id, id));
         let msg = CommMsg::new_with_args(MsgType::RemoveChannelFilter, dst.as_mut_slice());
         run_on_m2(|dev |{
             match dev.write_and_read_ptcmd(msg, 100) {
                 M2Resp::Ok(_) => {
-                    log_debug("M2 closed filter OK!");
+                    log_debug_str("M2 closed filter OK!");
                     self.filters[id] = 0; // Mark it as used
                     Ok(())
                 },
                 M2Resp::Err{status, string} => {
-                    log_error(format!("M2 failed to set filter {} on channel {} (Status {:?}): {}", id, self.id, status, string).as_str());
+                    log_error(format!("M2 failed to set filter {} on channel {} (Status {:?}): {}", id, self.id, status, string));
                     set_error_string(string);
                     Err(status)
                 }
@@ -292,7 +292,7 @@ impl Channel {
     }
 
     pub fn destroy(&self) -> Result<()> {
-        log_debug(format!("Requesting channel destroy. ID: {}", self.id).as_str());
+        log_debug(format!("Requesting channel destroy. ID: {}", self.id));
         let mut dst: Vec<u8> = Vec::new();
         dst.write_u32::<LittleEndian>(self.id).unwrap();
         let msg = CommMsg::new_with_args(MsgType::CloseChannel, dst.as_mut_slice());
@@ -300,7 +300,7 @@ impl Channel {
             match dev.write_and_read_ptcmd(msg, 250) {
                 M2Resp::Ok(_) => Ok(()),
                 M2Resp::Err{status, string} => {
-                    log_error(format!("M2 failed to close channel {} (Status {:?}): {}", self.id, status, string).as_str());
+                    log_error(format!("M2 failed to close channel {} (Status {:?}): {}", self.id, status, string));
                     set_error_string(string);
                     Err(status)
                 }
@@ -320,13 +320,13 @@ impl Channel {
         }
         dst.extend_from_slice(&ptmsg.data[0..ptmsg.data_size as usize]);
         let msg = CommMsg::new_with_args(MsgType::TransmitChannelData, dst.as_mut_slice());
-        log_debug(format!("Channel {} writing message: {}. Response required?: {}", self.id, ptmsg, require_response).as_str());
+        log_debug(format!("Channel {} writing message: {}. Response required?: {}", self.id, ptmsg, require_response));
         run_on_m2(|dev| {
             if require_response {
                 match dev.write_and_read_ptcmd(msg, 100) {
                     M2Resp::Ok(_) => Ok(()),
                     M2Resp::Err{status, string}  => {
-                        log_error(format!("M2 failed to write data to channel {} (Status {:?}): {}", self.id, status, string).as_str());
+                        log_error(format!("M2 failed to write data to channel {} (Status {:?}): {}", self.id, status, string));
                         set_error_string(string);
                         Err(status)
                     }
@@ -353,11 +353,11 @@ impl Channel {
             msg.protocol_id = self.protocol as u32;
             msg.data[..data.len()].copy_from_slice(data);
             msg.timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros() as u32;
-            log_debug(format!("Channel {} buffering message. RxStatus: {:08X}, data: {:02X?}", self.id, rx_status, &data).as_str());
+            log_debug(format!("Channel {} buffering message. RxStatus: {:08X}, data: {:02X?}", self.id, rx_status, &data));
             self.rx_data.push_back(msg);
         } else {
             // Data is lost if queue is too big!
-            log_error(format!("Rx queue in channel {} is full. Data has been lost!", self.id).as_str());
+            log_warn(format!("Rx queue in channel {} is full. Data has been lost!", self.id));
         }
     }
 
@@ -366,7 +366,7 @@ impl Channel {
             IoctlID::CLEAR_TX_BUFFER => self.tx_data.clear(),
             IoctlID::CLEAR_RX_BUFFER => self.rx_data.clear(),
             _ => {
-                log_error(format!("Unhandled raw IOCTL request for channel {} {:?}", self.id, ioctl_id).as_str());
+                log_error(format!("Unhandled raw IOCTL request for channel {} {:?}", self.id, ioctl_id));
                 return Err(PassthruError::ERR_FAILED)
             }
         }

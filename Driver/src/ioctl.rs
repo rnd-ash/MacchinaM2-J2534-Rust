@@ -1,11 +1,11 @@
 
 use J2534Common::{IoctlParam, Parsable, PassthruError, SConfigList};
-use crate::{comm::*, logger::log_warn};
+use crate::{comm::*, logger::{log_info_str, log_warn}};
 use crate::logger::{log_debug, log_error, log_info};
 use byteorder::{ByteOrder, LittleEndian};
 
 pub fn get_battery(output_ptr: *mut u32) -> PassthruError {
-    log_info(&format!("Getting voltage"));
+    log_info_str("Getting voltage");
     let msg = CommMsg::new(MsgType::ReadBatt);
     run_on_m2(|dev| {
         match dev.write_and_read_ptcmd(msg, 250) {
@@ -15,7 +15,7 @@ pub fn get_battery(output_ptr: *mut u32) -> PassthruError {
                 Ok(PassthruError::STATUS_NOERROR)
             },
             M2Resp::Err{status, string} => {
-                log_error(format!("Error reading battery voltage (Status {:?}): {}", status, string).as_str());
+                log_error(format!("Error reading battery voltage (Status {:?}): {}", status, string));
                 Ok(status)
             }
         }
@@ -28,12 +28,12 @@ pub fn set_config(channel_id: u32, cfg_ptr: &SConfigList) -> PassthruError {
             None => return PassthruError::ERR_NULL_PARAMETER,
             Some(param) => {
                 if param.parameter >= 0x20 {
-                    log_warn(format!("setconfig param name is reserved / tool specific?. Param: {:08X}, value: {:08X}", param.parameter, param.value).as_str());
+                    log_warn(format!("setconfig param name is reserved / tool specific?. Param: {:08X}, value: {:08X}", param.parameter, param.value));
                 } else {
                     if let Some(pname) = IoctlParam::from_raw(param.parameter) {
-                        log_error(format!("FIXME: Unhandled set_config operation. Channel: {}, Param name: {} value: {}", channel_id, pname, param.value).as_str());
+                        log_error(format!("FIXME: Unhandled set_config operation. Channel: {}, Param name: {} value: {}", channel_id, pname, param.value));
                     } else {
-                        log_error(format!("Cannot run setconfig. Invalid IOCTL Param name: {:08X}", param.parameter).as_str());
+                        log_error(format!("Cannot run setconfig. Invalid IOCTL Param name: {:08X}", param.parameter));
                         return PassthruError::ERR_INVALID_IOCTL_VALUE
                     }
                 }

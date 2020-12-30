@@ -5,7 +5,7 @@ mod comm;
 mod channels;
 mod ioctl;
 mod passthru_drv;
-use logger::log_error;
+use logger::{log_error, log_error_str};
 use passthru_drv::*;
 use ioctl::*;
 
@@ -152,7 +152,7 @@ pub extern "stdcall" fn PassThruSetProgrammingVoltage(
     Voltage: u32,
 ) -> i32 {
     // This isn't used as Macchina hardware does not support this
-    log_error("Programming voltage setting not supported");
+    log_error_str("Programming voltage setting not supported");
     set_error_string("Programming voltage is not supported".to_string());
     PassthruError::ERR_FAILED as i32
 }

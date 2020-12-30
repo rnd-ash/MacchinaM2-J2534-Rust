@@ -29,12 +29,12 @@ const DEVICE_ID: u32 = 0x1234;
 
 fn copy_str_unsafe(dst: *mut c_char, src: &str) -> bool {
     if dst.is_null() {
-        logger::log_info(format!("Error copying '{}' - Source ptr is null", src).as_str());
+        logger::log_info(format!("Error copying '{}' - Source ptr is null", src));
         return false
     }
     match CString::new(src) {
         Err(_) => {
-            logger::log_info(format!("Error copying '{}' - CString creation failed", src).as_str());
+            logger::log_info(format!("Error copying '{}' - CString creation failed", src));
             false
         }
         Ok(x) => {
@@ -56,7 +56,7 @@ pub fn passthru_read_version(
         match dev.write_and_read_ptcmd(msg, 250) {
             M2Resp::Ok(args) => { Ok(String::from_utf8(args).unwrap()) },
             M2Resp::Err{status, string} => {
-                log_warn(format!("M2 failed to respond to FW_VERSION request: {}", string).as_str());
+                log_warn(format!("M2 failed to respond to FW_VERSION request: {}", string));
                 Err(status)   
             }
         }
@@ -89,7 +89,7 @@ pub fn passthru_get_last_error(dest: *mut c_char) -> PassthruError {
 
 
 pub fn passthru_open(device_id: *mut u32) -> PassthruError {
-    logger::log_info("PassthruOpen called");
+    logger::log_info_str("PassthruOpen called");
     if M2.read().unwrap().is_some() {
         return PassthruError::ERR_DEVICE_IN_USE;
     } else {
@@ -104,7 +104,7 @@ pub fn passthru_open(device_id: *mut u32) -> PassthruError {
                 return PassthruError::ERR_FAILED;
             }
             Err(x) => {
-                logger::log_error(format!("Cannot open com port. Error: {}", x).as_str());
+                logger::log_error(format!("Cannot open com port. Error: {}", x));
                 set_error_string(format!("COM Port open failed with error {}", x));
                 return PassthruError::ERR_DEVICE_NOT_CONNECTED
             }
@@ -113,7 +113,7 @@ pub fn passthru_open(device_id: *mut u32) -> PassthruError {
 }
 
 pub fn passthru_close(device_id: u32) -> PassthruError {
-    logger::log_info(&format!("PassthruClose called. Device ID: {}", device_id));
+    logger::log_info(format!("PassthruClose called. Device ID: {}", device_id));
     // Device ID which isn't our device ID
     if device_id != DEVICE_ID {
         return PassthruError::ERR_INVALID_DEVICE_ID
@@ -143,7 +143,7 @@ pub fn passthru_connect(device_id: u32, protocol_id: u32, flags: u32, baud_rate:
         return PassthruError::ERR_DEVICE_NOT_CONNECTED;
     }
     if channel_id_ptr.is_null() {
-        logger::log_error(&"Channel destination pointer is null!?".to_string());
+        logger::log_error_str("Channel destination pointer is null!?");
         return PassthruError::ERR_NULL_PARAMETER;
     }
 
@@ -158,7 +158,7 @@ pub fn passthru_connect(device_id: u32, protocol_id: u32, flags: u32, baud_rate:
             }
         },
         None => {
-            logger::log_error(&format!("{} is not recognised as a valid protocol ID!", protocol_id));
+            logger::log_error(format!("{} is not recognised as a valid protocol ID!", protocol_id));
             PassthruError::ERR_INVALID_PROTOCOL_ID
         }
     }
@@ -180,7 +180,7 @@ pub fn passthru_ioctl(
     let ioctl_opt = match IoctlID::from_raw(ioctl_id) {
         Some(p) => p,
         None => {
-            log_error(format!("IOCTL Param {:08X} is invalid", ioctl_id).as_str());
+            log_error(format!("IOCTL Param {:08X} is invalid", ioctl_id));
             return PassthruError::ERR_INVALID_IOCTL_ID
         }
     };
@@ -188,14 +188,14 @@ pub fn passthru_ioctl(
     match ioctl_opt {
         IoctlID::READ_VBATT => {
             if output_ptr.is_null() {
-                log_error("Cannot read battery voltage. Output ptr is null");
+                log_error_str("Cannot read battery voltage. Output ptr is null");
                 return PassthruError::ERR_NULL_PARAMETER 
             }
             ioctl::get_battery(output_ptr as *mut u32)
         }
         IoctlID::SET_CONFIG => {
             if input_ptr.is_null() {
-                log_error("Cannot set config. Input ptr is null");
+                log_error_str("Cannot set config. Input ptr is null");
                 return PassthruError::ERR_NULL_PARAMETER 
             }
             ioctl::set_config(channel_id, unsafe { (input_ptr as *mut SConfigList).as_ref().unwrap() })
@@ -203,14 +203,14 @@ pub fn passthru_ioctl(
 
         IoctlID::GET_CONFIG => {
             if input_ptr.is_null() {
-                log_error("Cannot get config. Input ptr is null");
+                log_error_str("Cannot get config. Input ptr is null");
                 return PassthruError::ERR_NULL_PARAMETER 
             }
             ioctl::get_config(channel_id, unsafe { (input_ptr as *mut SConfigList).as_ref().unwrap() })
         }
 
         _ => {
-            log_error(format!("FIXME: IOCTL Param {} unhandled.", ioctl_opt).as_str());
+            log_error(format!("FIXME: IOCTL Param {} unhandled.", ioctl_opt));
             PassthruError::STATUS_NOERROR
         }
     }
@@ -229,7 +229,7 @@ pub fn passthru_ioctl(
 ///
 pub fn set_channel_filter(channel_id: u32, filter_type: FilterType, mask_ptr: *const PASSTHRU_MSG, pattern_ptr: *const PASSTHRU_MSG, fc_ptr: *const PASSTHRU_MSG, msg_id_ptr: *mut u32) -> PassthruError {
     if mask_ptr.is_null() || pattern_ptr.is_null() {
-        log_error("Mask or pattern is null!?");
+        log_error_str("Mask or pattern is null!?");
         return PassthruError::ERR_NULL_PARAMETER
     }
     
@@ -241,7 +241,7 @@ pub fn set_channel_filter(channel_id: u32, filter_type: FilterType, mask_ptr: *c
     fn log_filter(name: &str, msg: *const PASSTHRU_MSG) {
         let ptr = unsafe { msg.as_ref() };
         ptr.map(|msg| {
-            logger::log_debug(format!("Filter specified. Type: {}, Data: {:?}", name, &msg.data[0..msg.data_size as usize]).as_str())
+            logger::log_debug(format!("Filter specified. Type: {}, Data: {:?}", name, &msg.data[0..msg.data_size as usize]))
         });
     }
     log_filter("Mask filter", mask_ptr);
@@ -313,7 +313,7 @@ pub fn read_msgs(channel_id: u32, msg_ptr: *mut PASSTHRU_MSG, num_msg_ptr: *mut 
             Ok(opt) => {
                 match opt {
                     Some(msg) => {
-                        log_debug(format!("Channel {} sending data back to application! {}", channel_id, msg).as_str());
+                        log_debug(format!("Channel {} sending data back to application! {}", channel_id, msg));
                         unsafe { *msg_ptr.offset(i as isize) = msg; }
                         unsafe { *num_msg_ptr += 1 };
                     }

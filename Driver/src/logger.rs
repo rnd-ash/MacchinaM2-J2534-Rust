@@ -1,10 +1,11 @@
-use std::fmt::Formatter;
+use std::{fmt::Formatter, sync::RwLock};
 use std::fs::File;
 use std::io;
 use std::io::prelude::*;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use lazy_static::*;
+use std::sync::mpsc::{channel, Sender, Receiver};
 
 #[cfg(windows)]
 const LOG_PATH: &str = "C:\\Program Files (x86)\\macchina\\passthru\\macchina_log.txt";
@@ -13,45 +14,77 @@ const LOG_PATH: &str = "C:\\Program Files (x86)\\macchina\\passthru\\macchina_lo
 const LOG_PATH: &str = "macchina_log.txt";
 
 lazy_static! {
-    static ref LOGGER : Mutex<Logger> = Mutex::new(Logger::new());
+    static ref LOGGER : RwLock<Logger> = RwLock::new(Logger::new());
 }
 
 /// Logs an info message
-pub fn log_debug(msg: &str) {
-    LOGGER.lock().unwrap().write_to_file(format!("[DEBUG] - {}", msg));
+pub fn log_debug(msg: String) {
+    LOGGER.read().unwrap().queue_msg(format!("[DEBUG] - {}", msg))
 }
 
-/// Logs an info message
-pub fn log_info(msg: &str) {
-    LOGGER.lock().unwrap().write_to_file(format!("[INFO]  - {}", msg));
+pub fn log_debug_str(msg: &str) {
+    log_debug(msg.to_string())
 }
 
-/// Logs a warn message
-pub fn log_warn(msg: &str) {
-    LOGGER.lock().unwrap().write_to_file(format!("[WARN]  - {}", msg));
+pub fn log_error(msg: String) {
+    LOGGER.read().unwrap().queue_msg(format!("[ERROR] - {}", msg))
 }
 
-/// Logs an error message
-pub fn log_error(msg: &str) {
-    LOGGER.lock().unwrap().write_to_file(format!("[ERROR] - {}", msg));
+pub fn log_error_str(msg: &str) {
+    log_error(msg.to_string())
 }
 
-/// Logs a message coming from the M2 unit itself
-pub fn log_m2(msg: &str) {
-    LOGGER.lock().unwrap().write_to_file(format!("[M2_LG] - {}", msg));
+pub fn log_warn(msg: String) {
+    LOGGER.read().unwrap().queue_msg(format!("[WARN ] - {}", msg))
+}
+
+pub fn log_warn_str(msg: &str) {
+    log_warn(msg.to_string())
+}
+
+pub fn log_info(msg: String) {
+    LOGGER.read().unwrap().queue_msg(format!("[INFO ] - {}", msg))
+}
+
+pub fn log_info_str(msg: &str) {
+    log_info(msg.to_string())
+}
+
+pub fn log_m2_msg(msg: String) {
+    LOGGER.read().unwrap().queue_msg(format!("[M2LOG] - {}", msg))
+}
+
+pub fn log_m2_msg_str(msg: &str) {
+    log_info(msg.to_string())
 }
 
 
-pub struct Logger {}
+pub struct Logger {
+    tx_queue: Arc<Mutex<Sender<String>>>
+}
 
 impl Logger {
     fn new() -> Self {
-        Logger{}
+        let (tx, rx): (Sender<String>, Receiver<String>) = channel();
+        let log_thread = std::thread::spawn(move||{
+            loop {
+                if let Ok(s) = rx.recv() {
+                    Logger::write_to_file(s);
+                }
+            }
+        });
+        Logger{
+            tx_queue: Arc::new(Mutex::new(tx))
+        }
     }
+    pub fn queue_msg(&self, msg: String) {
+        self.tx_queue.lock().unwrap().send(msg);
+    }
+
 
     #[cfg(not(test))]
     // Not test mode - Write to file
-    fn write_to_file(&self, txt: String) {
+    fn write_to_file(txt: String) {
         if !Path::exists(Path::new(LOG_PATH)) {
             if let Err(x) = File::create(LOG_PATH) {
                 eprintln!("LOG FILE CREATE ERROR! [{}]", x);
@@ -74,7 +107,7 @@ impl Logger {
 
     #[cfg(test)]
     // In test mode we print to stdout
-    fn write_to_file(&self, txt: String) {
+    fn write_to_file(txt: String) {
         println!("{}", txt);
     }
 }
