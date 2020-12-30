@@ -1,7 +1,8 @@
-use logger::log_debug;
+use logger::{log_debug, log_error};
 use serialport::*;
 use std::io::{Write, Read, Error, ErrorKind};
 use std::sync::{Arc, Mutex, atomic::AtomicU32, atomic::AtomicBool, atomic::Ordering};
+use std::sync::mpsc::{channel, Sender, Receiver};
 use std::thread::{spawn, JoinHandle};
 use std::sync::RwLock;
 use lazy_static::lazy_static;
@@ -44,10 +45,7 @@ pub struct MacchinaM2 {
     rx_queue: Arc<RwLock<HashMap<u8, CommMsg>>>,
     handler: Option<JoinHandle<()>>,
     is_running: Arc<AtomicBool>,
-    #[cfg(windows)]
-    port: serialport::COMPort,
-    #[cfg(unix)]
-    port: serialport::TTYPort,
+    tx_send_queue: Sender<CommMsg>,
 }
 
 unsafe impl Send for MacchinaM2{}
@@ -82,7 +80,7 @@ fn get_comm_port() -> Option<String> {
 }
 
 pub type PTResult<T> = std::result::Result<T, PassthruError>;
-pub fn run_on_m2<T, F: FnOnce(&mut MacchinaM2) -> PTResult<T>>(op: F) -> PTResult<T> {
+pub fn run_on_m2<T, F: FnOnce(&MacchinaM2) -> PTResult<T>>(op: F) -> PTResult<T> {
     match M2.write().as_deref_mut() {
         Ok(d) => {
             match d {
@@ -108,7 +106,7 @@ impl MacchinaM2 {
 
     fn open_conn(port: &str) -> Result<Self> {
         
-        let port = match serialport::new(port, 500000).open_native() {
+        let mut port = match serialport::new(port, 500000).open_native() {
             Ok(mut port) => {
                 port.set_timeout(std::time::Duration::from_millis(1))?;
                 port.set_flow_control(FlowControl::Hardware)?;
@@ -118,12 +116,12 @@ impl MacchinaM2 {
             },
             Err(e) => {return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Error opening port {}", e.to_string())));}
         };
-        
-        let mut port_t = port.try_clone_native().unwrap();
 
         // Create our Rx queue for incomming messages
         let rx_queue = Arc::new(RwLock::new(HashMap::new()));
         let rx_queue_t = rx_queue.clone();
+
+        let (send_tx, send_rx) : (Sender<CommMsg>, Receiver<CommMsg>) = channel();
 
         // Set tell the thread to run by default
         let is_running = Arc::new(AtomicBool::new(true));
@@ -134,14 +132,19 @@ impl MacchinaM2 {
             let mut read_buffer: [u8; COMM_MSG_SIZE * 4] = [0x00; COMM_MSG_SIZE * 4];
             logger::log_debug("M2 receiver thread starting!");
             let msg = CommMsg::new_with_args(MsgType::StatusMsg, &[0x01]);
-            if port_t.write_all(&msg.to_slice()).is_err() {
+            if port.write_all(&msg.to_slice()).is_err() {
                 logger::log_error("Timeout writing init struct!");
                 is_running_t.store(false, Ordering::Relaxed);
                 return;
             }
             let mut read_count = 0;
             while is_running_t.load(Ordering::Relaxed) {
-                let incomming = port_t.read(&mut read_buffer[read_count..]).unwrap_or(0);
+                // Any messages to write?
+                if let Ok(m) = send_rx.try_recv() {
+                    port.write_all(&m.to_slice());
+                }
+
+                let incomming = port.read(&mut read_buffer[read_count..]).unwrap_or(0);
                 if incomming > 0 {
                     read_count += incomming;
                     if read_count >= COMM_MSG_SIZE {
@@ -162,7 +165,7 @@ impl MacchinaM2 {
                 }
             }
             let msg = CommMsg::new_with_args(MsgType::StatusMsg, &[0x00]);
-            port_t.write_all(&msg.to_slice());
+            port.write_all(&msg.to_slice());
             logger::log_debug("M2 receiver thread exiting");
         }));
         std::thread::sleep(std::time::Duration::from_millis(50));
@@ -175,20 +178,18 @@ impl MacchinaM2 {
             rx_queue,
             handler,
             is_running,
-            port: port
+            tx_send_queue: send_tx
         };
         return Ok(m);
     }
 
-    pub fn write_comm_struct(&mut self, mut s: CommMsg) -> PTResult<()> {
+    pub fn write_comm_struct(&self, mut s: CommMsg) -> PTResult<()> {
         s.msg_id = 0x00; // Tell M2 it doesn't have to respond to request
-        if self.port.write_all(&s.to_slice()).is_err() {
-            return Err(PassthruError::ERR_DEVICE_NOT_CONNECTED);
-        }
+        self.tx_send_queue.send(s);
         Ok(())
     }
 
-    pub fn write_and_read_ptcmd(&mut self, s: CommMsg, timeout_ms: u128) -> M2Resp {
+    pub fn write_and_read_ptcmd(&self, s: CommMsg, timeout_ms: u128) -> M2Resp {
         match self.write_and_read(s, timeout_ms) {
             Err(e) => M2Resp::Err { status: e, string: format!("M2 communication failure: {:?}", e) },
             Ok(resp) => {
@@ -219,11 +220,12 @@ impl MacchinaM2 {
     }
 
     /// Writes a message to the M2 unit, and expects a designated response back from the unit
-    pub fn write_and_read(&mut self, mut s: CommMsg, timeout_ms: u128) -> PTResult<CommMsg> {
+    pub fn write_and_read(&self, mut s: CommMsg, timeout_ms: u128) -> PTResult<CommMsg> {
         let query_id = get_id(); // Set a unique ID, M2 is now forced to respond
         s.msg_id = query_id;
-        if self.port.write_all(&s.to_slice()).is_err() {
-            return Err(PassthruError::ERR_DEVICE_NOT_CONNECTED)
+        if let Err(e) = self.tx_send_queue.send(s) {
+            log_error(format!("Error writing comm msg to queue {}", e).as_str());
+            return Err(PassthruError::ERR_FAILED);
         }
         logger::log_debug(format!("Write data: {}", &s).as_str());
         let start_time = std::time::Instant::now();
