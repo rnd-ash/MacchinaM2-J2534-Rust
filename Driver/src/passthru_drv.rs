@@ -52,7 +52,7 @@ pub fn passthru_read_version(
     api_version_ptr: *mut c_char
 ) -> PassthruError {
     let fw_version = run_on_m2(|dev| {
-        let msg = COMM_MSG::new(MsgType::GetFwVersion);
+        let msg = CommMsg::new(MsgType::GetFwVersion);
         match dev.write_and_read_ptcmd(msg, 250) {
             M2Resp::Ok(args) => { Ok(String::from_utf8(args).unwrap()) },
             M2Resp::Err{status, string} => {
@@ -112,10 +112,10 @@ pub fn passthru_open(device_id: *mut u32) -> PassthruError {
     }
 }
 
-pub fn passthru_close(pDeviceID: u32) -> PassthruError {
-    logger::log_info(&format!("PassthruClose called. Device ID: {}", pDeviceID));
+pub fn passthru_close(device_id: u32) -> PassthruError {
+    logger::log_info(&format!("PassthruClose called. Device ID: {}", device_id));
     // Device ID which isn't our device ID
-    if pDeviceID != DEVICE_ID {
+    if device_id != DEVICE_ID {
         return PassthruError::ERR_INVALID_DEVICE_ID
     }
     if M2.read().unwrap().is_none() {
@@ -136,22 +136,22 @@ pub fn passthru_close(pDeviceID: u32) -> PassthruError {
     }
 }
 
-pub fn passthru_connect(device_id: u32, protocol_id: u32, flags: u32, baud_rate: u32, pChannelID: *mut u32) -> PassthruError {
+pub fn passthru_connect(device_id: u32, protocol_id: u32, flags: u32, baud_rate: u32, channel_id_ptr: *mut u32) -> PassthruError {
     if device_id != DEVICE_ID {
         // Diagnostic Software messed up here. Not my device ID!
         set_error_string(format!("Not M2s device ID. Expected {}, got {}", DEVICE_ID, device_id));
         return PassthruError::ERR_DEVICE_NOT_CONNECTED;
     }
-    if pChannelID.is_null() {
+    if channel_id_ptr.is_null() {
         logger::log_error(&"Channel destination pointer is null!?".to_string());
-        PassthruError::ERR_NULL_PARAMETER;
+        return PassthruError::ERR_NULL_PARAMETER;
     }
 
     match Protocol::from_raw(protocol_id) {
         Some(protocol) => {
             match ChannelComm::create_channel(protocol, baud_rate, flags) {
                 Ok(chan_id) => {
-                    unsafe { *pChannelID = chan_id };
+                    unsafe { *channel_id_ptr = chan_id };
                     PassthruError::STATUS_NOERROR
                 },
                 Err(x) => x

@@ -4,15 +4,18 @@
 #include "j2534_mini.h"
 #include "channel.h"
 
-#define FW_TEST
+#pragma GCC diagnostic error "-Wall"
 
-#define FW_VERSION "0.0.1"
+//#define FW_TEST
+#define MACCHINA_V4
+
+#define FW_VERSION "0.0.2"
 
 CAN_FRAME input;
 M2_12VIO M2IO;
 
 void setup() {
-  SerialUSB.begin(115200); // 500 kbps 
+  SerialUSB.begin(500000); // 500 kbps 
   pinMode(DS6, OUTPUT); // Green
   pinMode(DS5, OUTPUT); // Yellow
   pinMode(DS4, OUTPUT); // Yellow
@@ -32,8 +35,6 @@ void setup() {
   set_status_led(0x00); // No connection on powerup
   M2IO.Init_12VIO();
 }
-
-#define MACCHINA_V4
 
 // https://github.com/kenny-macchina/M2VoltageMonitor/blob/master/M2VoltageMonitor_V4/M2VoltageMonitor_V4.ino
 float getVoltage() {
@@ -110,10 +111,14 @@ void loop() {
       break;
     }
   }
+  #ifdef FW_TEST
   if (millis() - lastPing > 1000 && isConnected) {
     lastPing = millis();
-    PCCOMM::log_message("PING!");
+    char buf[12];
+    sprintf(buf, "PING %d", sizeof(CAN_FRAME));
+    PCCOMM::log_message(buf);
   }
+  #endif
   channel_loop();
 }
  

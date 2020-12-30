@@ -1,10 +1,9 @@
-use libc::{c_char, c_long};
+use libc::c_char;
 use J2534Common::*;
 mod logger;
 mod comm;
 mod channels;
 mod ioctl;
-use comm::{MacchinaM2};
 mod passthru_drv;
 use logger::log_error;
 use passthru_drv::*;
@@ -100,9 +99,10 @@ pub extern "stdcall" fn PassThruStartMsgFilter(
 }
 
 #[no_mangle]
-#[allow(non_snake_case)]
+#[allow(non_snake_case, unused_variables)]
 pub extern "stdcall" fn PassThruStopMsgFilter(ChannelID: u32, MsgID: u32) -> i32 {
-    PassthruError::STATUS_NOERROR as i32
+    set_error_string("SetProgrammingVoltage is not supported by M2".to_string());
+    PassthruError::ERR_FAILED as i32
 }
 
 #[no_mangle]

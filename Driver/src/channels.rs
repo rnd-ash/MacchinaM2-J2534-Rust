@@ -1,7 +1,6 @@
 use J2534Common::*;
 use lazy_static::*;
-use std::time::Instant;
-use crate::{PassThruConnect, logger::*};
+use crate::logger::*;
 use std::collections::VecDeque;
 use std::sync::*;
 use crate::comm::*;
@@ -21,7 +20,7 @@ const MAX_FILTERS_PER_CHANNEL: usize = 10;
 
 type Result<T> = std::result::Result<T, PassthruError>;
 
-pub enum ChannelID {
+enum ChannelID {
     Can = 0,
     Kline = 1,
     J1850 = 2,
@@ -30,7 +29,7 @@ pub enum ChannelID {
 
 
 impl ChannelID {
-    pub fn get_channel<'a>(&self) -> &'static RwLock<Option<Channel>> {
+    fn get_channel<'a>(&self) -> &'static RwLock<Option<Channel>> {
         match self {
             ChannelID::Can => &CAN_CHANNEL,
             ChannelID::Kline => &KLINE_CHANNEL,
@@ -158,7 +157,7 @@ impl ChannelComm {
     }
 
     /// Used by the receiver thread running on the M2 to write data to our Rx buffer
-    pub fn receive_channel_data(msg: &COMM_MSG) -> Result<()> {
+    pub fn receive_channel_data(msg: &CommMsg) -> Result<()> {
         match ChannelID::from_u32(msg.args[0] as u32)?.get_channel().write() {
             Ok(mut channel) => {
                 if let Some(c) = channel.as_mut() {
@@ -201,7 +200,7 @@ impl Channel {
             dst.write_u32::<LittleEndian>(*arg).unwrap();
         }
         log_debug(format!("Requesting channel open. ID: {}, Protocol: {:?}, baud: {}, flags: 0x{:04X}", id, protocol, baud_rate, flags).as_str());
-        let msg = COMM_MSG::new_with_args(MsgType::OpenChannel, dst.as_mut_slice());
+        let msg = CommMsg::new_with_args(MsgType::OpenChannel, dst.as_mut_slice());
         run_on_m2(|dev |{
             match dev.write_and_read_ptcmd(msg, 100) {
                 M2Resp::Ok(_) => {
@@ -249,7 +248,7 @@ impl Channel {
         dst.extend_from_slice(pattern_bytes);
         dst.extend_from_slice(fc_bytes);
         log_debug(format!("Setting {} (ID: {}) on channel {}. Mask: {:02X?}, Pattern: {:02X?}, FlowControl: {:02X?}", filter_type, self.id, free_id, mask_bytes, pattern_bytes, fc_bytes).as_str());
-        let msg = COMM_MSG::new_with_args(MsgType::SetChannelFilter, dst.as_mut_slice());
+        let msg = CommMsg::new_with_args(MsgType::SetChannelFilter, dst.as_mut_slice());
         run_on_m2(|dev |{
             match dev.write_and_read_ptcmd(msg, 250) {
                 M2Resp::Ok(_) => {
@@ -275,7 +274,7 @@ impl Channel {
             dst.write_u32::<LittleEndian>(*arg).unwrap();
         }
         log_debug(format!("Closing channel {} filter {}", self.id, id).as_str());
-        let msg = COMM_MSG::new_with_args(MsgType::RemoveChannelFilter, dst.as_mut_slice());
+        let msg = CommMsg::new_with_args(MsgType::RemoveChannelFilter, dst.as_mut_slice());
         run_on_m2(|dev |{
             match dev.write_and_read_ptcmd(msg, 100) {
                 M2Resp::Ok(_) => {
@@ -296,7 +295,7 @@ impl Channel {
         log_debug(format!("Requesting channel destroy. ID: {}", self.id).as_str());
         let mut dst: Vec<u8> = Vec::new();
         dst.write_u32::<LittleEndian>(self.id).unwrap();
-        let msg = COMM_MSG::new_with_args(MsgType::CloseChannel, dst.as_mut_slice());
+        let msg = CommMsg::new_with_args(MsgType::CloseChannel, dst.as_mut_slice());
         run_on_m2(|dev |{
             match dev.write_and_read_ptcmd(msg, 250) {
                 M2Resp::Ok(_) => Ok(()),
@@ -320,7 +319,7 @@ impl Channel {
             dst.write_u32::<LittleEndian>(*arg).unwrap();
         }
         dst.extend_from_slice(&ptmsg.data[0..ptmsg.data_size as usize]);
-        let msg = COMM_MSG::new_with_args(MsgType::TransmitChannelData, dst.as_mut_slice());
+        let msg = CommMsg::new_with_args(MsgType::TransmitChannelData, dst.as_mut_slice());
         log_debug(format!("Channel {} writing message: {}. Response required?: {}", self.id, ptmsg, require_response).as_str());
         run_on_m2(|dev| {
             if require_response {

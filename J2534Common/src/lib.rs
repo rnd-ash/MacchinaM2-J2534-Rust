@@ -1,6 +1,8 @@
 #[macro_use]
 extern crate bitflags;
 
+use std::fmt::Display;
+
 use serde::{Deserialize, Serialize};
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
@@ -33,9 +35,9 @@ pub enum Protocol {
     SCI_B_TRANS = 0x0A,
 }
 
-impl Loggable for Protocol {
-    fn to_string(&self) -> &str {
-        match &self {
+impl Display for Protocol {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match &self {
             Protocol::J1850VPW => "J1850 VPW",
             Protocol::J1850PWM => "J1850 PWM",
             Protocol::ISO9141 => "ISO 9141",
@@ -46,7 +48,7 @@ impl Loggable for Protocol {
             Protocol::SCI_A_TRANS => "SCI A TRANS",
             Protocol::SCI_B_ENGINE => "SCI B ENGINE",
             Protocol::SCI_B_TRANS => "SCI B TRANS",
-        }
+        })
     }
 }
 
@@ -57,7 +59,7 @@ impl Parsable for Protocol {
 }
 
 #[repr(u32)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, FromPrimitive)]
 #[allow(non_camel_case_types, dead_code)]
 pub enum IoctlID {
     GET_CONFIG = 0x01,
@@ -75,8 +77,21 @@ pub enum IoctlID {
     READ_PROG_VOLTAGE = 0x0E,
 }
 
+impl std::fmt::Display for IoctlID {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(format!("{:?}", self).as_str())
+    }
+}
+
+impl Parsable for IoctlID {
+    fn from_raw(x: u32) -> Option<Self>
+    where Self: Sized {
+        FromPrimitive::from_u32(x)
+    }
+}
+
 #[repr(u32)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, FromPrimitive)]
 #[allow(non_camel_case_types, dead_code)]
 pub enum IoctlParam {
     DATA_RATE = 0x01,
@@ -118,6 +133,19 @@ pub enum IoctlParam {
     STMIN_TX = 0x23,
     T3_MAX = 0x24,
     ISO15765_WFT_MAX = 0x25,
+}
+
+impl std::fmt::Display for IoctlParam {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(format!("{:?}", self).as_str())
+    }
+}
+
+impl Parsable for IoctlParam {
+    fn from_raw(x: u32) -> Option<Self>
+    where Self: Sized {
+        FromPrimitive::from_u32(x)
+    }
 }
 
 #[repr(u32)]
@@ -338,6 +366,19 @@ impl Default for PASSTHRU_MSG {
             extra_data_size: 0,
             data: [0; 4128],
         }
+    }
+}
+
+impl std::fmt::Display for PASSTHRU_MSG {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(format!(
+            "Protocol: {}, RxStatus: {:08X}, TxFlags: {:08X}, Data: {:02X?}", 
+            Protocol::from_raw(self.protocol_id).unwrap(),
+            unsafe { self.rx_status },
+            unsafe { self.tx_flags },
+            &self.data[0..self.data_size as usize]
+            
+        ).as_str())
     }
 }
 

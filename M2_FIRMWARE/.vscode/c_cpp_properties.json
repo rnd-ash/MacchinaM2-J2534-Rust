@@ -14,7 +14,10 @@
                 "/home/ashcon/.arduino15/packages/macchina/hardware/sam/0.3.13/libraries/**",
                 "/home/ashcon/.arduino15/packages/macchina/hardware/sam/0.3.13/variants/**",
                 "/home/ashcon/.arduino15/packages/macchina/hardware/sam/0.3.13/**",
-                "/usr/bin/libraries/**"
+                "/usr/bin/libraries/**",
+                "C:\\Users\\Ashcon\\AppData\\Local\\Arduino15\\packages\\macchina\\hardware\\sam\\0.3.13\\**",
+                "C:\\Program Files (x86)\\Arduino\\libraries\\**",
+                "C:\\Users\\Ashcon\\Documents\\Arduino\\libraries\\**"
             ],
             "forcedInclude": [
                 "/home/ashcon/.arduino15/packages/macchina/hardware/sam/0.3.13/variants/m2/variant.h"

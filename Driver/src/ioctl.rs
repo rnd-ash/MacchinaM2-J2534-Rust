@@ -6,7 +6,7 @@ use byteorder::{ByteOrder, LittleEndian};
 
 pub fn get_battery(output_ptr: *mut u32) -> PassthruError {
     log_info(&format!("Getting voltage"));
-    let msg = COMM_MSG::new(MsgType::ReadBatt);
+    let msg = CommMsg::new(MsgType::ReadBatt);
     run_on_m2(|dev| {
         match dev.write_and_read_ptcmd(msg, 250) {
             M2Resp::Ok(args) => {
