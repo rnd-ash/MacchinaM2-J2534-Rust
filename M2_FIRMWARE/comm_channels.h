@@ -3,6 +3,11 @@
 
 #include "comm.h"
 #include "custom_can.h"
+#include "j2534_mini.h"
+
+
+bool debug_send_frame(CAN_FRAME &f);
+void debug_read_frame(CAN_FRAME &f);
 
 class Channel {
     public:
@@ -32,7 +37,6 @@ class CanChannel : public Channel {
         void addFilter(int type, int filter_id, char* mask, char* pattern, char* flowcontrol, int mask_len, int pattern_len, int flowcontrol_len);
         void removeFilter(int id);
         void destroy();
-        void on_frame_receive(CAN_FRAME *f);
         void sendMsg(uint32_t tx_flags, char* data, int data_size, bool respond);
         void update();
     private:
@@ -60,9 +64,11 @@ class ISO15765Channel : public Channel {
         void sendMsg(uint32_t tx_flags, char* data, int data_size, bool respond);
         void update();
     private:
-        void tx_single_frame(CAN_FRAME *read);
-        void tx_multi_frame(CAN_FRAME *read, int filter_id);
+        void rx_single_frame(CAN_FRAME *read);
+        void rx_multi_frame(CAN_FRAME *read, int filter_id);
+        void tx_multi_frame();
         void send_ff_indication(CAN_FRAME *read, int filter_id);
+        void handle_fc(CAN_FRAME *read, int filter_id);
         CAN_FRAME f;
         bool used_mailboxes[7] = {false};
         uint32_t flowcontrol_ids[7] = {0x00};
@@ -75,6 +81,11 @@ class ISO15765Channel : public Channel {
         isoPayload txPayload = {0x00}; // For sending
         uint8_t block_size;
         uint8_t sep_time;
+
+        uint8_t block_size_tx = 0;
+        uint8_t sep_time_tx = 0;
+        uint8_t tx_frames_sent = 0;
+        uint8_t tx_pci = 0x20;
         unsigned long next_send_time;
         bool clear_to_send = false;
 };

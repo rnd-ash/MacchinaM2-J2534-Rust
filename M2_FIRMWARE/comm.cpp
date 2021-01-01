@@ -89,9 +89,7 @@ namespace PCCOMM {
         res.msg_id = 0x00;
         memcpy(&res.args[1], &rx_status, 4);
         memcpy(&res.args[5], data, res.arg_size-5);
-        digitalWrite(DS7_GREEN, LOW);
         send_message(&res);
-        digitalWrite(DS7_GREEN, HIGH);
     }
 
     /**

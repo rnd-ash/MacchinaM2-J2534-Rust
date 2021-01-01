@@ -67,18 +67,22 @@ void CustomCan::disableCanBus() {
 }
 
 void CustomCan::__rx_queue_push_frame(rxQueue &r, CAN_FRAME &f) {
+    //digitalWrite(DS7_GREEN, LOW);
     uint8_t nextEntry = (r.head + 1) % MAX_RX_QUEUE;
     // Queue is full, data is lost
     if (nextEntry == r.tail)  return;
     memcpy((void *)&r.buffer[r.head], (void *)&f, sizeof(CAN_FRAME));
     r.head = nextEntry;
+    //digitalWrite(DS7_GREEN, HIGH);
 }
 
 bool CustomCan::__rx_queue_pop_frame(rxQueue &r, CAN_FRAME &f) {
     // No frames in ring buffer
     if (r.head == r.tail)  return false;
+    digitalWrite(DS7_GREEN, LOW);
     memcpy((void *)&f, (void *)&r.buffer[r.tail], sizeof(CAN_FRAME));
     r.tail = (r.tail + 1) % MAX_RX_QUEUE;
+    digitalWrite(DS7_GREEN, HIGH);
     return true;
 }
 
@@ -105,7 +109,9 @@ bool CustomCan::receiveFrame(int mailbox_id, CAN_FRAME *f) {
 }
 
 bool CustomCan::sendFrame(CAN_FRAME *cf) {
+    digitalWrite(DS7_GREEN, LOW);
     Can0.sendFrame(*cf);
+    digitalWrite(DS7_GREEN, HIGH);
 }
 
 void CustomCan::clearMailboxQueue(int mailbox_id) {

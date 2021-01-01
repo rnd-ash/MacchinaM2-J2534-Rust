@@ -65,6 +65,7 @@ void remove_channel(COMM_MSG *msg) {
     switch(id) {
         case CAN_CHANNEL_ID:
             delete_channel(canChannel);
+            PCCOMM::respond_ok(MSG_CLOSE_CHANNEL, nullptr, 0);
             break;
         default:
             PCCOMM::respond_err(MSG_CLOSE_CHANNEL, ERR_FAILED, "Protocol unsupported");

@@ -300,7 +300,6 @@ pub fn read_msgs(channel_id: u32, msg_ptr: *mut PASSTHRU_MSG, num_msg_ptr: *mut 
     if msg_ptr.is_null() || num_msg_ptr.is_null() {
         return PassthruError::ERR_NULL_PARAMETER
     }
-
     let max_msgs = *unsafe { num_msg_ptr.as_ref() }.unwrap() as usize;
     // Set num_msg_ptr to 0, we will increment it as reading to keep track how many messages have been read
     unsafe { *num_msg_ptr = 0 };
@@ -313,7 +312,7 @@ pub fn read_msgs(channel_id: u32, msg_ptr: *mut PASSTHRU_MSG, num_msg_ptr: *mut 
             Ok(opt) => {
                 match opt {
                     Some(msg) => {
-                        log_debug(format!("Channel {} sending data back to application! {}", channel_id, msg));
+                        //log_debug(format!("Channel {} sending data back to application! {}", channel_id, msg));
                         unsafe { *msg_ptr.offset(i as isize) = msg; }
                         unsafe { *num_msg_ptr += 1 };
                     }

@@ -353,7 +353,7 @@ impl Channel {
             msg.protocol_id = self.protocol as u32;
             msg.data[..data.len()].copy_from_slice(data);
             msg.timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros() as u32;
-            log_debug(format!("Channel {} buffering message. RxStatus: {:08X}, data: {:02X?}", self.id, rx_status, &data));
+            //log_debug(format!("Channel {} buffering message. RxStatus: {:08X}, data: {:02X?}", self.id, rx_status, &data));
             self.rx_data.push_back(msg);
         } else {
             // Data is lost if queue is too big!
