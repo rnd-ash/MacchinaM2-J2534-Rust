@@ -86,6 +86,15 @@ impl ChannelComm {
         }
     }
 
+    pub fn force_destroy_all_channels() {
+        // This simply destroys all channels, only in the event that M2 is being force shutdown
+        // Do this by simply removing everything causing everything to be dropped
+        CAN_CHANNEL.write().unwrap().take().take();
+        KLINE_CHANNEL.write().unwrap().take().take();
+        J1850_CHANNEL.write().unwrap().take().take();
+        SCI_CHANNEL.write().unwrap().take().take();
+    }
+
     pub fn destroy_channel(channel_id: u32) -> Result<()> {
         match ChannelID::from_u32(channel_id)?.get_channel().write() {
             Ok(mut channel) => {
@@ -131,6 +140,58 @@ impl ChannelComm {
                 set_error_string(format!("Write guard failed: {}", e));
                 Err(PassthruError::ERR_FAILED)
             }
+        }
+    }
+
+    pub fn ioctl_get_cfg(channel_id: u32, param_name: IoctlParam) -> Result<u32> {
+        match ChannelID::from_u32(channel_id)?.get_channel().write() {
+            Ok(mut channel) => {
+                if let Some(c) = channel.as_mut() {
+                    c.ioctl_get_config(param_name)
+                } else {
+                    Err(PassthruError::ERR_INVALID_CHANNEL_ID)
+                }
+            }
+            Err(e) => {
+                set_error_string(format!("Write guard failed: {}", e));
+                Err(PassthruError::ERR_FAILED)
+            }
+        }
+    }
+
+    pub fn ioctl_set_cfg(channel_id: u32, param_name: IoctlParam, value: u32) -> Result<()> {
+        match ChannelID::from_u32(channel_id)?.get_channel().write() {
+            Ok(mut channel) => {
+                if let Some(c) = channel.as_mut() {
+                    c.ioctl_set_config(param_name, value)
+                } else {
+                    Err(PassthruError::ERR_INVALID_CHANNEL_ID)
+                }
+            }
+            Err(e) => {
+                set_error_string(format!("Write guard failed: {}", e));
+                Err(PassthruError::ERR_FAILED)
+            }
+        }
+    }
+
+    pub fn clear_rx_buffer(channel_id: u32) -> PassthruError {
+        match ChannelID::from_u32(channel_id) {
+            Ok(c) => match c.get_channel().write().unwrap().as_mut() {
+                Some(c) => c.clear_rx_buffer(),
+                None => PassthruError::ERR_INVALID_CHANNEL_ID
+            },
+            Err(e) => e
+        }
+    }
+
+    pub fn clear_tx_buffer(channel_id: u32) -> PassthruError {
+        match ChannelID::from_u32(channel_id) {
+            Ok(c) => match c.get_channel().write().unwrap().as_mut() {
+                Some(c) => c.clear_tx_buffer(),
+                None => PassthruError::ERR_INVALID_CHANNEL_ID
+            },
+            Err(e) => e
         }
     }
 
@@ -361,23 +422,24 @@ impl Channel {
         }
     }
 
-    pub fn ioctl(&mut self, ioctl_id: IoctlID) -> Result<()> {
-        match ioctl_id {
-            IoctlID::CLEAR_TX_BUFFER => self.tx_data.clear(),
-            IoctlID::CLEAR_RX_BUFFER => self.rx_data.clear(),
-            _ => {
-                log_error(format!("Unhandled raw IOCTL request for channel {} {:?}", self.id, ioctl_id));
-                return Err(PassthruError::ERR_FAILED)
-            }
-        }
+
+    pub fn clear_rx_buffer(&mut self) -> PassthruError {
+        self.rx_data.clear();
+        PassthruError::STATUS_NOERROR
+    }
+
+    pub fn clear_tx_buffer(&mut self) -> PassthruError {
+        // nothing to do
+        PassthruError::STATUS_NOERROR
+    }
+
+    pub fn ioctl_set_config(&mut self, pname: IoctlParam, pvalue: u32) -> Result<()> {
+        log_warn_str("Channel set config unimplemented");
         Ok(())
     }
 
-    pub fn ioctl_set_config(cfg: &SConfig) {
-
-    }
-
-    pub fn ioctl_get_config(cfg: &SConfig) {
-
+    pub fn ioctl_get_config(&mut self, pname: IoctlParam) -> Result<u32> {
+        log_warn_str("Channel get config unimplemented, returning 0");
+        Ok(0)
     }
 }

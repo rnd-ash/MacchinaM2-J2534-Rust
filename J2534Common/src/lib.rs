@@ -199,20 +199,20 @@ impl Loggable for PassthruError {
             PassthruError::ERR_INVALID_MSG => "Invalid or malformed message",
             PassthruError::ERR_INVALID_TIME_INTERVAL => "Time interval outside specified range",
             PassthruError::ERR_EXCEEDED_LIMIT => "Too many filters or periodic messages",
-            PassthruError::ERR_INVALID_MSG_ID => "Message ID / Handle ID not recognised",
+            PassthruError::ERR_INVALID_MSG_ID => "Message ID / Handle ID not recognized",
             PassthruError::ERR_DEVICE_IN_USE => "Device is already in use",
-            PassthruError::ERR_INVALID_IOCTL_ID => "IOCTL ID not recognised",
+            PassthruError::ERR_INVALID_IOCTL_ID => "IOCTL ID not recognized",
             PassthruError::ERR_BUFFER_EMPTY => "Receive buffer is empty",
             PassthruError::ERR_BUFFER_FULL => "Transmit buffer is full",
             PassthruError::ERR_BUFFER_OVERFLOW => "Device buffer overflow",
             PassthruError::ERR_PIN_INVALID => "Unknown pin specified",
             PassthruError::ERR_CHANNEL_IN_USE => "Channel is already in use",
             PassthruError::ERR_MSG_PROTOCOL_ID => "Message protocol ID does not match that of the communication channel",
-            PassthruError::ERR_INVALID_FILTER_ID => "Filter ID not recognised",
+            PassthruError::ERR_INVALID_FILTER_ID => "Filter ID not recognized",
             PassthruError::ERR_NO_FLOW_CONTROL => "No flow control filter is set",
             PassthruError::ERR_NOT_UNIQUE => "An existing filter already matches",
             PassthruError::ERR_INVALID_BAUDRATE => "Unable to set requested baudrate",
-            PassthruError::ERR_INVALID_DEVICE_ID => "Device ID not recognised",
+            PassthruError::ERR_INVALID_DEVICE_ID => "Device ID not recognized",
         }
     }
 }
@@ -400,7 +400,7 @@ pub struct SConfig {
 #[repr(C, packed(1))]
 pub struct SConfigList {
     pub num_of_params: u32,
-    pub config_ptr: *const SConfig,
+    pub config_ptr: *mut SConfig,
 }
 
 #[test]

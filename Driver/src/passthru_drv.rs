@@ -118,20 +118,18 @@ pub fn passthru_close(device_id: u32) -> PassthruError {
     if device_id != DEVICE_ID {
         return PassthruError::ERR_INVALID_DEVICE_ID
     }
-    if M2.read().unwrap().is_none() {
-        return PassthruError::STATUS_NOERROR;
+    if let Ok(d) = M2.write().as_deref_mut() {
+        match d {
+            Some(dev) => {
+                // Kill all open channels if any exist
+                dev.stop();
+                channels::ChannelComm::force_destroy_all_channels();
+                *d = None;
+                return PassthruError::STATUS_NOERROR;
+            },
+            None => {return PassthruError::STATUS_NOERROR}
+        }
     } else {
-        if let Ok(d) = M2.write().as_deref_mut() {
-            match d {
-                Some(dev) => dev.stop(),
-                None => {return PassthruError::STATUS_NOERROR}
-            }
-        }
-
-        if let Ok(ptr) = M2.write().as_deref_mut() {
-            *ptr = None;
-            return PassthruError::STATUS_NOERROR;
-        }
         return PassthruError::ERR_FAILED;
     }
 }
@@ -191,7 +189,14 @@ pub fn passthru_ioctl(
                 log_error_str("Cannot read battery voltage. Output ptr is null");
                 return PassthruError::ERR_NULL_PARAMETER 
             }
-            ioctl::get_battery(output_ptr as *mut u32)
+            ioctl::read_vbatt(output_ptr as *mut u32)
+        },
+        IoctlID::READ_PROG_VOLTAGE => {
+            if output_ptr.is_null() {
+                log_error_str("Cannot read programming voltage. Output ptr is null");
+                return PassthruError::ERR_NULL_PARAMETER 
+            }
+            ioctl::read_prog_voltage(output_ptr as *mut u32)
         }
         IoctlID::SET_CONFIG => {
             if input_ptr.is_null() {
@@ -208,18 +213,56 @@ pub fn passthru_ioctl(
             }
             ioctl::get_config(channel_id, unsafe { (input_ptr as *mut SConfigList).as_ref().unwrap() })
         }
-
-        _ => {
-            log_error(format!("FIXME: IOCTL Param {} unhandled.", ioctl_opt));
-            PassthruError::STATUS_NOERROR
+        IoctlID::FIVE_BAUD_INIT => {
+            if input_ptr.is_null() {
+                log_error_str("Cannot run five baud init. Input ptr is null");
+                return PassthruError::ERR_NULL_PARAMETER 
+            }
+            if output_ptr.is_null() {
+                log_error_str("Cannot run five baud init. Input ptr is null");
+                return PassthruError::ERR_NULL_PARAMETER 
+            }
+            ioctl::five_baud_init(
+                channel_id, 
+                unsafe { (input_ptr as *mut SBYTE_ARRAY).as_mut().unwrap() },
+                unsafe { (input_ptr as *mut SBYTE_ARRAY).as_mut().unwrap() }
+            )
+        },
+        IoctlID::FAST_INIT => {
+            if input_ptr.is_null() {
+                log_error_str("Cannot run fast init. Input ptr is null");
+                return PassthruError::ERR_NULL_PARAMETER 
+            }
+            if output_ptr.is_null() {
+                log_error_str("Cannot run fast init. Input ptr is null");
+                return PassthruError::ERR_NULL_PARAMETER 
+            }
+            ioctl::fast_init(
+                channel_id, 
+                unsafe { (input_ptr as *mut PASSTHRU_MSG).as_mut().unwrap() },
+                unsafe { (input_ptr as *mut PASSTHRU_MSG).as_mut().unwrap() }
+            )
+        },
+        IoctlID::CLEAR_TX_BUFFER => ioctl::clear_tx_buffer(channel_id),
+        IoctlID::CLEAR_RX_BUFFER => ioctl::clear_rx_buffer(channel_id),
+        IoctlID::CLEAR_PERIODIC_MSGS => ioctl::clear_periodic_msgs(channel_id),
+        IoctlID::CLEAR_MSG_FILTERS => ioctl::clear_msg_filters(channel_id),
+        IoctlID::CLEAR_FUNCT_MSG_LOOKUP_TABLE => ioctl::clear_funct_msg_lookup_table(channel_id),
+        IoctlID::ADD_TO_FUNCT_MSG_LOOKUP_TABLE => {
+            if input_ptr.is_null() {
+                log_error_str("Cannot add to function message lookup table. Input ptr is null");
+                return PassthruError::ERR_NULL_PARAMETER 
+            }
+            ioctl::add_to_funct_msg_lookup_table(channel_id, unsafe { (input_ptr as *mut SBYTE_ARRAY).as_mut().unwrap() })
+        },
+        IoctlID::DELETE_FROM_FUNCT_MSG_LOOKUP_TABLE => {
+            if input_ptr.is_null() {
+                log_error_str("Cannot delete from function message lookup table. Input ptr is null");
+                return PassthruError::ERR_NULL_PARAMETER 
+            }
+            ioctl::delete_from_funct_msg_lookup_table(channel_id, unsafe { (input_ptr as *mut SBYTE_ARRAY).as_mut().unwrap() })
         }
     }
-
-    /*
-    if IoctlID == J2534Common::IoctlID::READ_VBATT as u32 {
-        
-    }
-    */
 }
 
 /// Sets a channel filter
