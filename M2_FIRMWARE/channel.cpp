@@ -197,3 +197,56 @@ void send_data(COMM_MSG *msg) {
     }
     delete[] buf;
 }
+
+
+void ioctl_get(COMM_MSG *msg) {
+    uint8_t channel_id;
+    uint32_t ioctl_id;
+    if (msg->arg_size != 5) {
+        PCCOMM::respond_err(MSG_IOCTL_GET, ERR_FAILED, "IOCTL get request invalid length");
+        return;
+    }
+    channel_id = msg->args[0];
+    memcpy(&ioctl_id, &msg->args[1], 4);
+    switch (channel_id)
+    {
+    case CAN_CHANNEL_ID:
+        if (canChannel != nullptr) {
+            canChannel->ioctl_get(ioctl_id);
+        } else {
+            PCCOMM::respond_err(MSG_IOCTL_GET, ERR_FAILED, "Can channel is null!");
+        }
+        break;
+    
+    default:
+        PCCOMM::respond_err(MSG_IOCTL_GET, ERR_INVALID_CHANNEL_ID, nullptr);
+        break;
+    }
+}
+
+void ioctl_set(COMM_MSG *msg) {
+    uint8_t channel_id;
+    uint32_t ioctl_id;
+    uint32_t value;
+    if (msg->arg_size != 9) {
+        PCCOMM::respond_err(MSG_IOCTL_GET, ERR_FAILED, "IOCTL set request invalid length");
+        return;
+    }
+    channel_id = msg->args[0];
+    memcpy(&ioctl_id, &msg->args[1], 4);
+    memcpy(&value, &msg->args[5], 4);
+    switch (channel_id)
+    {
+    case CAN_CHANNEL_ID:
+        if (canChannel != nullptr) {
+            canChannel->ioctl_set(ioctl_id, value);
+        } else {
+            PCCOMM::respond_err(MSG_IOCTL_SET, ERR_FAILED, "Can channel is null!");
+        }
+        break;
+    
+    default:
+        PCCOMM::respond_err(MSG_IOCTL_SET, ERR_INVALID_CHANNEL_ID, nullptr);
+        break;
+    }
+}

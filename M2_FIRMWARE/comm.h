@@ -14,7 +14,8 @@
 #define MSG_TX_CHAN_DATA 0x06
 #define MSG_RX_CHAN_DATA 0x07
 #define MSG_READ_BATT 0x08
-#define MSG_IOCTL 0x09
+#define MSG_IOCTL_SET 0x09
+#define MSG_IOCTL_GET 0x10
 #define MSG_STATUS 0xAA // Args: [0] -> 0x00 = Goodbye, 0x01 = Hellow
 #define MSG_GET_FW_VERSION 0xAB
 #define MSG_TEST 0x0FF

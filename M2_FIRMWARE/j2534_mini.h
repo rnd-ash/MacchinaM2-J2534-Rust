@@ -78,4 +78,46 @@
 #define	TX_MSG_TYPE		        0x00000001	// Receive Indication/Transmit Confirmation: 0 = Rx Frame indication, 1 = Tx Frame confirmation
 
 
+// Ioctl parameters for GET_CONFIG and SET_CONFIG
+#define		DATA_RATE		     0x01	// 5 – 500000 	// Baud rate value used for vehicle network. No default value specified.
+#define		LOOPBACK		     0x03	// 0(OFF)/1(ON)	// 0 = Do not echo transmitted messages to the Receive queue. 1 = Echo transmitted messages to the Receive queue.
+								                        // Default value is 0(OFF).
+#define		NODE_ADDRESS         0x04	// 0x00-0xFF	// J1850PWM specific, physical address for node of interest in the vehicle network. Default is no nodes are recognized by scan tool.
+#define		NETWORK_LINE	     0x05	// 0(BUS_NORMAL)/1(BUS_PLUS)/2(BUS_MINUS)	// J1850PWM specific, network line(s) active during message transfers. Default value is 0(BUS_NORMAL).
+#define		P1_MIN			     0x06	// 0x0-0xFFFF	// ISO-9141/14230 specific, min. ECU inter-byte time for responses [02.02-API: ms]. Default value is 0 ms. 04.04-API: NOT ADJUSTABLE, 0ms.
+#define		P1_MAX			     0x07	// 0x0/0x1-0xFFFF // ISO-9141/14230 specific, max. ECU inter-byte time for responses [02.02-API: ms, 04.04-API: *0.5ms]. Default value is 20 ms.
+#define		P2_MIN			     0x08	// 0x0-0xFFFF	// ISO-9141/14230 specific, min. ECU response time to a tester request or between ECU responses [02.02-API: ms, 04.04-API: *0.5ms]. 04.04-API: NOT ADJUSTABLE, 0ms. Default value is 25 ms.
+#define		P2_MAX			     0x09	// 0x0-0xFFFF	// ISO-9141/14230 specific, max. ECU response time to a tester request or between ECU responses [02.02-API: ms, 04.04-API: *0.5ms]. 04.04-API: NOT ADJUSTABLE, all messages up to P3_MIN are receoved. Default value is 50 ms.
+#define		P3_MIN			     0x0A	// 0x0-0xFFFF	// ISO-9141/14230 specific, min. ECU response time between end of ECU response and next tester request [02.02-API: ms, 04.04-API: *0.5ms]. Default value is 55 ms.
+#define		P3_MAX			     0x0B	// 0x0-0xFFFF	// ISO-9141/14230 specific, max. ECU response time between end of ECU response and next tester request [02.02-API: ms, 04.04-API: *0.5ms]. 04.04-API: NOT ADJUSTABLE, messages can be sent at anytime after P3_MIN. Default value is 5000 ms.
+#define		P4_MIN			     0x0C	// 0x0-0xFFFF	// ISO-9141/14230 specific, min. tester inter-byte time for a request [02.02-API: ms, 04.04-API: *0.5ms]. Default value is 5 ms.
+#define		P4_MAX			     0x0D	// 0x0-0xFFFF	// ISO-9141/14230 specific, max. tester inter-byte time for a request [02.02-API: ms, 04.04-API: *0.5ms]. 04.04-API: NOT ADJUSTABLE, P4_MIN is always used. Default value is 20 ms.
+#define		W1			         0x0E	// 0x0-0xFFFF	// ISO 9141 specific, max. time [ms] from the address byte end to synchronization pattern start. Default value is 300 ms.
+#define		W2			         0x0F	// 0x0-0xFFFF	// ISO 9141 specific, max. time [ms] from the synchronization byte end to key byte 1 start. Default value is 20 ms.
+#define		W3			         0x10	// 0x0-0xFFFF	// ISO 9141 specific, max. time [ms] between key byte 1 and key byte 2. Default value is 20 ms.
+#define		W4			         0x11	// 0x0-0xFFFF	// ISO 9141 specific, 02.02-API: max. time [ms] between key byte 2 and its inversion from the tester. Default value is 50 ms.
+								                        // ISO 9141 specific, 04.04-API: min. time [ms] between key byte 2 and its inversion from the tester. Default value is 50 ms.
+#define		W5			        0x12	// 0x0-0xFFFF	// ISO 9141 specific, min. time [ms] before the tester begins retransmission of the address byte. Default value is 300 ms.
+#define		TIDLE			    0x13	// 0x0-0xFFFF	// ISO 9141 specific, bus idle time required before starting a fast initialization sequence. Default value is W5 value.
+#define		TINL			    0x14	// 0x0-0xFFFF	// ISO 9141 specific, the duration [ms] of the fast initialization low pulse. Default value is 25 ms.
+#define		TWUP			    0x15	// 0x0-0xFFFF	// ISO 9141 specific, the duration [ms] of the fast initialization wake-up pulse. Default value is 50 ms.
+#define		PARITY			    0x16	// 0(NO_PARITY)/1(ODD_PARITY)/2(EVEN_PARITY)	// ISO9141 specific, parity type for detecting bit errors.  Default value is 0(NO_PARITY).
+#define		BIT_SAMPLE_POINT	0x17	// 0-100	// CAN specific, the desired bit sample point as a percentage of bit time. Default value is 80%.
+#define		SYNCH_JUMP_WIDTH	0x18	// 0-100	// CAN specific, the desired synchronization jump width as a percentage of the bit time. Default value is 15%.
+#define		W0			        0x19
+#define		T1_MAX			    0x1A	// 0x0-0xFFFF	// SCI_X_XXXX specific, the max. interframe response delay. Default value is 20 ms.
+#define		T2_MAX			    0x1B	// 0x0-0xFFFF	// SCI_X_XXXX specific, the max. interframe request delay.Default value is 100 ms.
+#define		T4_MAX			    0x1C	// 0x0-0xFFFF	// SCI_X_XXXX specific, the max. intermessage response delay. Default value is 20 ms.
+#define		T5_MAX			    0x1D	// 0x0-0xFFFF	// SCI_X_XXXX specific, the max. intermessage request delay. Default value is 100 ms.
+#define		ISO15765_BS		    0x1E	// 0x0-0xFF	// ISO15765 specific, the block size for segmented transfers.
+								                    // The scan tool may override this value to match the capabilities reported by the ECUs. Default value is 0. */
+#define		ISO15765_STMIN		0x1F	// 0x0-0xFF	// ISO15765 specific, the separation time for segmented transfers.
+								                    // The scan tool may override this value to match the capabilities reported by the ECUs. Default value is 0.
+#define		DATA_BITS		    0x20	// 04.04-API only
+#define		FIVE_BAUD_MOD		0x21
+#define		BS_TX			    0x22
+#define		STMIN_TX		    0x23
+#define		T3_MAX			    0x24
+#define		ISO15765_WFT_MAX	0x25
+
 #endif

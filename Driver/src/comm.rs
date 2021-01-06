@@ -262,7 +262,8 @@ pub enum MsgType {
     TransmitChannelData = 0x06,
     ReceiveChannelData = 0x07,
     ReadBatt = 0x08,
-    Ioctl = 0x09,
+    IoctlSet = 0x09,
+    IoctlGet = 0x10,
     StatusMsg = 0xAA,
     GetFwVersion = 0xAB,
     #[cfg(test)]
@@ -286,7 +287,8 @@ impl MsgType {
             0x06 => MsgType::TransmitChannelData,
             0x07 => MsgType::ReceiveChannelData,
             0x08 => MsgType::ReadBatt,
-            0x09 => MsgType::Ioctl,
+            0x09 => MsgType::IoctlSet,
+            0x10 => MsgType::IoctlGet,
             0xAA => MsgType::StatusMsg,
             0xAB => MsgType::GetFwVersion,
             #[cfg(test)]

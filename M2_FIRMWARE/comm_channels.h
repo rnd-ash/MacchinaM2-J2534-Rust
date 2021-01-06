@@ -11,13 +11,14 @@ void debug_read_frame(CAN_FRAME &f);
 
 class Channel {
     public:
-        virtual void ioctl(COMM_MSG *msg);
         virtual bool setup(int id, int protocol, int baud, int flags);
         virtual void addFilter(int type, int filter_id, char* mask, char* pattern, char* flowcontrol, int mask_len, int pattern_len, int flowcontrol_len);
         virtual void removeFilter(int id);
         virtual void sendMsg(uint32_t tx_flags, char* data, int data_size, bool respond);
         virtual void destroy();
         virtual void update();
+        virtual void ioctl_get(uint32_t id);
+        virtual void ioctl_set(uint32_t id, uint32_t value);
     protected:
         int channel_id;
 };
@@ -32,13 +33,14 @@ struct CanRingBuffer {
 
 class CanChannel : public Channel {
     public:
-        void ioctl(COMM_MSG *msg);
         bool setup(int id, int protocol, int baud, int flags);
         void addFilter(int type, int filter_id, char* mask, char* pattern, char* flowcontrol, int mask_len, int pattern_len, int flowcontrol_len);
         void removeFilter(int id);
         void destroy();
         void sendMsg(uint32_t tx_flags, char* data, int data_size, bool respond);
         void update();
+        void ioctl_get(uint32_t id);
+        void ioctl_set(uint32_t id, uint32_t value);
     private:
         bool isExtended = false;
         CAN_FRAME f;
@@ -56,13 +58,14 @@ struct isoPayload {
 
 class ISO15765Channel : public Channel {
     public:
-        void ioctl(COMM_MSG *msg);
         bool setup(int id, int protocol, int baud, int flags);
         void addFilter(int type, int filter_id, char* mask, char* pattern, char* flowcontrol, int mask_len, int pattern_len, int flowcontrol_len);
         void removeFilter(int id);
         void destroy();
         void sendMsg(uint32_t tx_flags, char* data, int data_size, bool respond);
         void update();
+        void ioctl_get(uint32_t id);
+        void ioctl_set(uint32_t id, uint32_t value);
     private:
         void rx_single_frame(CAN_FRAME *read);
         void rx_multi_frame(CAN_FRAME *read, int filter_id);

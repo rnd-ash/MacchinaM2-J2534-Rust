@@ -1,9 +1,5 @@
 #include "comm_channels.h"
 
-void ISO15765Channel::ioctl(COMM_MSG *msg) {
-
-}
-
 bool ISO15765Channel::setup(int id, int protocol, int baud, int flags) {
     // Here we go, setup a ISO15765 channel!
     if (Can0.init(baud) == 0) {
@@ -311,5 +307,40 @@ void ISO15765Channel::sendMsg(uint32_t tx_flags, char* data, int data_size, bool
         if (respond) {
             PCCOMM::respond_ok(MSG_TX_CHAN_DATA, nullptr, 0);
         }
+    }
+}
+
+void ISO15765Channel::ioctl_get(uint32_t id) {
+    uint32_t tmp = 0;
+    switch (id)
+    {
+    case ISO15765_STMIN:
+        tmp = this->sep_time;
+        PCCOMM::respond_ok(MSG_IOCTL_GET, (uint8_t*)(&tmp), 4);
+        break;
+    case ISO15765_BS:
+        tmp = this->block_size;
+        PCCOMM::respond_ok(MSG_IOCTL_GET, (uint8_t*)(&tmp), 4);
+        break;
+    default:
+        PCCOMM::respond_err(MSG_IOCTL_GET, ERR_INVALID_IOCTL_ID, "ISO15765 invalid IOCTL ID");
+        break;
+    }
+}
+
+void ISO15765Channel::ioctl_set(uint32_t id, uint32_t value) {
+    switch (id)
+    {
+    case ISO15765_STMIN:
+        this->sep_time = value;
+        PCCOMM::respond_ok(MSG_IOCTL_SET, nullptr, 0);
+        break;
+    case ISO15765_BS:
+        this->block_size = value;
+        PCCOMM::respond_ok(MSG_IOCTL_SET, nullptr, 0);
+        break;
+    default:
+        PCCOMM::respond_err(MSG_IOCTL_SET, ERR_INVALID_IOCTL_ID, "ISO15765 invalid IOCTL ID");
+        break;
     }
 }

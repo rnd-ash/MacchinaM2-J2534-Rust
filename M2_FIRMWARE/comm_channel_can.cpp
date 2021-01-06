@@ -1,9 +1,5 @@
 #include "comm_channels.h"
 
-void CanChannel::ioctl(COMM_MSG *msg) {
-    PCCOMM::respond_err(MSG_IOCTL, ERR_FAILED,"Not implemented");
-}
-
 bool CanChannel::setup(int id, int protocol, int baud, int flags) {
     // Here we go, setup a CAN channel!
     CustomCan::enableCanBus(baud);
@@ -127,4 +123,13 @@ void CanChannel::sendMsg(uint32_t tx_flags, char* data, int data_size, bool resp
     if (respond) {
         PCCOMM::respond_ok(MSG_TX_CHAN_DATA, nullptr, 0);
     }
+}
+
+
+void CanChannel::ioctl_get(uint32_t id) {
+    PCCOMM::respond_err(MSG_IOCTL_GET, ERR_FAILED, "CAN IOCTL get unimplemented");
+}
+
+void CanChannel::ioctl_set(uint32_t id, uint32_t value) {
+    PCCOMM::respond_err(MSG_IOCTL_SET, ERR_FAILED, "CAN IOCTL set unimplemented");
 }

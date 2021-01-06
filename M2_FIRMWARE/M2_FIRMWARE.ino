@@ -104,6 +104,12 @@ void loop() {
     case MSG_CLOSE_CHANNEL:
       remove_channel(&msg);
       break;
+    case MSG_IOCTL_SET:
+      ioctl_set(&msg);
+      break;
+    case MSG_IOCTL_GET:
+      ioctl_get(&msg);
+      break;
     case MSG_GET_FW_VERSION:
       get_fw_version(&msg);
       break;

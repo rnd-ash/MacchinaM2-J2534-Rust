@@ -434,12 +434,51 @@ impl Channel {
     }
 
     pub fn ioctl_set_config(&mut self, pname: IoctlParam, pvalue: u32) -> Result<()> {
-        log_warn_str("Channel set config unimplemented");
-        Ok(())
+        let mut dst: Vec<u8> = Vec::new();
+        dst.push(self.id as u8);
+        for arg in [pname as u32, pvalue].iter() {
+            dst.write_u32::<LittleEndian>(*arg).unwrap();
+        }
+        let msg = CommMsg::new_with_args(MsgType::IoctlSet, dst.as_mut_slice());
+        log_debug(format!("Channel {} writing IOCTL Param: {}. Param value: {}", self.id, pname, pvalue));
+        run_on_m2(|dev| {
+            match dev.write_and_read_ptcmd(msg, 100) {
+                M2Resp::Ok(_) => Ok(()),
+                M2Resp::Err{status, string}  => {
+                    log_error(format!("M2 failed to set IOCTL {} (Status {:?}): {}", self.id, status, string));
+                    set_error_string(string);
+                    Err(status)
+                }
+            }
+        })
     }
 
     pub fn ioctl_get_config(&mut self, pname: IoctlParam) -> Result<u32> {
-        log_warn_str("Channel get config unimplemented, returning 0");
-        Ok(0)
+        let mut dst: Vec<u8> = Vec::new();
+        dst.push(self.id as u8);
+        for arg in [pname as u32].iter() {
+            dst.write_u32::<LittleEndian>(*arg).unwrap();
+        }
+        let msg = CommMsg::new_with_args(MsgType::IoctlGet, dst.as_mut_slice());
+        log_debug(format!("Channel {} requesting IOCTL Param: {}", self.id, pname));
+        run_on_m2(|dev| {
+            match dev.write_and_read_ptcmd(msg, 100) {
+                M2Resp::Ok(v) => {
+                    if v.len() != 4 {
+                        log_error(format!("M2 responded to get IOCTL {}, but response was an invalid length!", pname));
+                        set_error_string("IOCTL Get response was an invalid length".into());
+                        Err(PassthruError::ERR_FAILED)
+                    } else {
+                        // Correct response length
+                        Ok(LittleEndian::read_u32(&v))
+                    }
+                },
+                M2Resp::Err{status, string}  => {
+                    log_error(format!("M2 failed to get IOCTL {} (Status {:?}): {}", pname, status, string));
+                    set_error_string(string);
+                    Err(status)
+                }
+            }
+        })
     }
 }

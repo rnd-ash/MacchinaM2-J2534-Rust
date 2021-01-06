@@ -18,6 +18,9 @@ void delete_channel(Channel*& ptr);
 void add_channel_filter(COMM_MSG* msg);
 void send_data(COMM_MSG *msg);
 
+void ioctl_get(COMM_MSG *msg);
+void ioctl_set(COMM_MSG *msg);
+
 void create_can_channel(int id, int protocol, int baud, int flags);
 
 /**
