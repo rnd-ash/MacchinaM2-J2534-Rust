@@ -1,7 +1,7 @@
 #ifndef J2534_MINI_H_
 #define J2534_MINI_H_
 
-// Just stores relivant J2534 values to channels and IOCTL commands
+// Just stores reliant J2534 values to channels and IOCTL commands
 
 // Protocols
 #define	J1850VPW	 0x01 // J1850 VPW protocol

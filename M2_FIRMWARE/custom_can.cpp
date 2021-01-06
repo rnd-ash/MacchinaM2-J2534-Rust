@@ -120,7 +120,6 @@ void CustomCan::clearMailboxQueue(int mailbox_id) {
     rxQueues[mailbox_id].tail = 0;
 }
 
-
 void CustomCan::__callback_mb0(CAN_FRAME *f) { __rx_queue_push_frame(rxQueues[0], *f); }
 void CustomCan::__callback_mb1(CAN_FRAME *f) { __rx_queue_push_frame(rxQueues[1], *f); }
 void CustomCan::__callback_mb2(CAN_FRAME *f) { __rx_queue_push_frame(rxQueues[2], *f); }

@@ -9,7 +9,7 @@
 //#define FW_TEST
 #define MACCHINA_V4
 
-#define FW_VERSION "0.0.2"
+#define FW_VERSION "0.0.5"
 
 CAN_FRAME input;
 M2_12VIO M2IO;
