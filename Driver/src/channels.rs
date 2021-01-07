@@ -237,7 +237,7 @@ impl ChannelComm {
 }
 
 
-const MAX_QUEUE_MSGS: usize = 100;
+const MAX_QUEUE_MSGS: usize = 500;
 /// J2534 API Channel
 #[derive(Debug, Clone)]
 struct Channel {
@@ -361,9 +361,8 @@ impl Channel {
             match dev.write_and_read_ptcmd(msg, 250) {
                 M2Resp::Ok(_) => Ok(()),
                 M2Resp::Err{status, string} => {
-                    log_error(format!("M2 failed to close channel {} (Status {:?}): {}", self.id, status, string));
-                    set_error_string(string);
-                    Err(status)
+                    log_error(format!("M2 failed to respond to close channel {} (Status {:?}): {}, assuming close was OK", self.id, status, string));
+                    Ok(())
                 }
             }
         })

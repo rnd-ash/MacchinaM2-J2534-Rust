@@ -1,6 +1,6 @@
 
 use J2534Common::{IoctlParam, PASSTHRU_MSG, Parsable, PassthruError, SBYTE_ARRAY, SConfigList};
-use crate::{channels, comm::*, logger::{log_info_str, log_warn, log_warn_str}};
+use crate::{channels, comm::*, logger::{log_info_str, log_warn, log_warn_str}, passthru_drv::set_error_string};
 use crate::logger::{log_debug, log_error, log_info};
 use byteorder::{ByteOrder, LittleEndian};
 
@@ -10,6 +10,11 @@ pub fn read_vbatt(output_ptr: *mut u32) -> PassthruError {
     run_on_m2(|dev| {
         match dev.write_and_read_ptcmd(msg, 250) {
             M2Resp::Ok(args) => {
+                if args.len() < 4 { // This should stop a panic from randomly occuring when M2 is under load
+                    log_error(format!("Error reading battery voltage - Args size was not correct"));
+                    set_error_string("M2 responded with wrong args size".into());
+                    return Err(PassthruError::ERR_FAILED)
+                }
                 let v = LittleEndian::read_u32(&args);
                 unsafe { *output_ptr = v };
                 Ok(PassthruError::STATUS_NOERROR)
