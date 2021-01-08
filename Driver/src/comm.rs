@@ -141,7 +141,6 @@ impl MacchinaM2 {
                 if let Ok(m) = send_rx.try_recv() {
                     port.write_all(&m.to_slice());
                 }
-
                 let incomming = port.read(&mut read_buffer[read_count..]).unwrap_or(0);
                 if incomming > 0 {
                     read_count += incomming;
@@ -277,7 +276,7 @@ impl std::cmp::PartialEq for MsgType {
 }
 
 impl MsgType {
-    fn from_u8(s: u8) -> MsgType {
+    fn from_u8(s: &u8) -> MsgType {
         match s {
             0x01 => MsgType::LogMsg,
             0x02 => MsgType::OpenChannel,
@@ -331,12 +330,10 @@ impl PartialEq<CommMsg> for CommMsg {
 impl CommMsg {
     pub fn from_vec(buf: &[u8]) -> Self {
         let mut args: [u8; COMM_MSG_ARG_SIZE] = [0x00; COMM_MSG_ARG_SIZE];
-        (0..COMM_MSG_ARG_SIZE).for_each(|i| {
-            args[i] = buf[i + 4];
-        });
+        args.copy_from_slice(&buf[4..]);
         CommMsg {
             msg_id: buf[0],
-            msg_type: MsgType::from_u8(buf[1]),
+            msg_type: MsgType::from_u8(&buf[1]),
             arg_size: LittleEndian::read_u16(&buf[2..4]),
             args,
         }
