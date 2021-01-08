@@ -1,0 +1,25 @@
+name: Linux driver
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+defaults:
+  run:
+    working-directory: "Driver"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install libudev
+      run: sudo apt-get install libudev-dev
+    - name: Build
+      run: cargo build --verbose
+      
