@@ -350,9 +350,8 @@ impl CommMsg {
 
     pub fn new_with_args(msg_type: MsgType, args_array: &[u8]) -> Self {
         let mut args: [u8; COMM_MSG_ARG_SIZE] = [0x00; COMM_MSG_ARG_SIZE];
-        (0..std::cmp::min(args_array.len(), COMM_MSG_ARG_SIZE)).for_each(|i| {
-            args[i] = args_array[i];
-        });
+        let max_copy = std::cmp::min(args_array.len(), COMM_MSG_ARG_SIZE);
+        args[0..max_copy].copy_from_slice(&args_array[0..max_copy]);
         CommMsg {
             msg_type,
             arg_size: args_array.len() as u16,
@@ -365,9 +364,8 @@ impl CommMsg {
         if args.len() > COMM_MSG_ARG_SIZE {
             logger::log_warn(format!("Input args is {} larger than payload size, truncating", args.len() - COMM_MSG_ARG_SIZE));
         }
-        (0..std::cmp::min(COMM_MSG_ARG_SIZE, args.len())).for_each(|i| {
-            self.args[i] = args[i];
-        });
+        let max_copy = std::cmp::min(args.len(), COMM_MSG_ARG_SIZE);
+        self.args[0..max_copy].copy_from_slice(&args[0..max_copy]);
     }
 
     pub fn set_type(&mut self, msg_type: MsgType) {
