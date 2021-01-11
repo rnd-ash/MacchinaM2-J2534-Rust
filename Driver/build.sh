@@ -1,25 +1,23 @@
 #!/usr/bin/env bash
 
-path="debug"
+path="release"
 
-if [ $1 = "release" ]; then
-    path="release"
-    cargo build --release
-else
-    cargo build
-fi
+echo "Macchina M2 Driver Installer"
 
-
-UNAME=$(UNAME)
+UNAME=$(uname)
 if [ `UNAME` = Darwin ]; then
+    echo "Building the cargo"
+    cargo build --release
     echo "Copying JSON to ~/.passthru/"
-    cp ../macchina.json ~/.passthru/macchina.json
+    cp macchina.json ~/.passthru/macchina.json
     echo "Copying the driver to ~/.passthru/"
-    cp target/${path}/libm2_driver.dylib ~/.passthru/macchina.dylib
+    cp target/${path}/libm2_driver.dylib ~/.passthru/macchina.so
     
 else
+    echo "Building the cargo"
+    cargo build --release
     echo "Copying JSON to ~/.passthru/"
-    cp ../macchina.json ~/.passthru/macchina.json
+    cp macchina.json ~/.passthru/macchina.json
     echo "Copying the driver to ~/.passthru/"
     cp target/${path}/libm2_driver.so ~/.passthru/macchina.so
 fi
