@@ -10,7 +10,7 @@ else
 fi
 
 echo "Copying JSON to ~/.passthru/"
-cp ../macchina.json ~/.passthru/macchina.so
+cp macchina.json ~/.passthru/macchina.json
 
 echo "Copying library to ~/.passthru/"
 cp target/${path}/libm2_driver.so ~/.passthru/macchina.so
