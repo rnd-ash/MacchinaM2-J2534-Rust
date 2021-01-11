@@ -6,9 +6,9 @@ use byteorder::{ByteOrder, LittleEndian};
 
 pub fn read_vbatt(output_ptr: *mut u32) -> PassthruError {
     log_info_str("Getting voltage");
-    let msg = CommMsg::new(MsgType::ReadBatt);
+    let mut msg = CommMsg::new(MsgType::ReadBatt);
     run_on_m2(|dev| {
-        match dev.write_and_read_ptcmd(msg, 250) {
+        match dev.write_and_read_ptcmd(&mut msg, 250) {
             M2Resp::Ok(args) => {
                 if args.len() < 4 { // This should stop a panic from randomly occuring when M2 is under load
                     log_error(format!("Error reading battery voltage - Args size was not correct"));

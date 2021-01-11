@@ -101,8 +101,7 @@ pub extern "stdcall" fn PassThruStartMsgFilter(
 #[no_mangle]
 #[allow(non_snake_case, unused_variables)]
 pub extern "stdcall" fn PassThruStopMsgFilter(ChannelID: u32, MsgID: u32) -> i32 {
-    set_error_string("SetProgrammingVoltage is not supported by M2".to_string());
-    PassthruError::ERR_FAILED as i32
+    passthru_drv::del_channel_filter(ChannelID, MsgID) as i32
 }
 
 #[no_mangle]

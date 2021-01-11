@@ -175,6 +175,22 @@ impl ChannelComm {
         }
     }
 
+    pub fn remove_filter(channel_id: u32, filter_id: u32) -> Result<()> {
+        match ChannelID::from_u32(channel_id)?.get_channel().write() {
+            Ok(mut channel) => {
+                if let Some(c) = channel.as_mut() {
+                    c.remove_filter(filter_id as usize)
+                } else {
+                    Err(PassthruError::ERR_INVALID_CHANNEL_ID)
+                }
+            }
+            Err(e) => {
+                set_error_string(format!("Write guard failed: {}", e));
+                Err(PassthruError::ERR_FAILED)
+            }
+        }
+    }
+
     pub fn clear_rx_buffer(channel_id: u32) -> PassthruError {
         match ChannelID::from_u32(channel_id) {
             Ok(c) => match c.get_channel().write().unwrap().as_mut() {
@@ -261,9 +277,9 @@ impl Channel {
             dst.write_u32::<LittleEndian>(*arg).unwrap();
         }
         log_debug(format!("Requesting channel open. ID: {}, Protocol: {:?}, baud: {}, flags: 0x{:04X}", id, protocol, baud_rate, flags));
-        let msg = CommMsg::new_with_args(MsgType::OpenChannel, dst.as_mut_slice());
+        let mut msg = CommMsg::new_with_args(MsgType::OpenChannel, dst.as_mut_slice());
         run_on_m2(|dev |{
-            match dev.write_and_read_ptcmd(msg, 100) {
+            match dev.write_and_read_ptcmd(&mut msg, 100) {
                 M2Resp::Ok(_) => {
                     log_debug_str("M2 opened channel!");
                     Ok(Self{
@@ -286,7 +302,6 @@ impl Channel {
     }
 
     pub fn add_filter(&mut self, filter_type: FilterType, mask_bytes: &[u8], pattern_bytes: &[u8], fc_bytes: &[u8]) -> Result<u32> {
-        println!("{:?}", self.filters);
         let free_id = self.filters.iter().enumerate().find(| (_, v) | {**v == 0}).map_or(99, |x| x.0);
 
         if free_id == 99 {
@@ -309,9 +324,9 @@ impl Channel {
         dst.extend_from_slice(pattern_bytes);
         dst.extend_from_slice(fc_bytes);
         log_debug(format!("Setting {} (ID: {}) on channel {}. Mask: {:02X?}, Pattern: {:02X?}, FlowControl: {:02X?}", filter_type, self.id, free_id, mask_bytes, pattern_bytes, fc_bytes));
-        let msg = CommMsg::new_with_args(MsgType::SetChannelFilter, dst.as_mut_slice());
+        let mut msg = CommMsg::new_with_args(MsgType::SetChannelFilter, dst.as_mut_slice());
         run_on_m2(|dev |{
-            match dev.write_and_read_ptcmd(msg, 250) {
+            match dev.write_and_read_ptcmd(&mut msg, 250) {
                 M2Resp::Ok(_) => {
                     log_debug(format!("M2 set filter {} on channel {}!", free_id, self.id));
                     self.filters[free_id] = 1; // Mark it as used
@@ -334,17 +349,17 @@ impl Channel {
         for arg in [self.id, id as u32].iter() {
             dst.write_u32::<LittleEndian>(*arg).unwrap();
         }
-        log_debug(format!("Closing channel {} filter {}", self.id, id));
-        let msg = CommMsg::new_with_args(MsgType::RemoveChannelFilter, dst.as_mut_slice());
+        log_debug(format!("Removing channel {} filter {}", self.id, id));
+        let mut msg = CommMsg::new_with_args(MsgType::RemoveChannelFilter, dst.as_mut_slice());
         run_on_m2(|dev |{
-            match dev.write_and_read_ptcmd(msg, 100) {
+            match dev.write_and_read_ptcmd(&mut msg, 100) {
                 M2Resp::Ok(_) => {
                     log_debug_str("M2 closed filter OK!");
                     self.filters[id] = 0; // Mark it as used
                     Ok(())
                 },
                 M2Resp::Err{status, string} => {
-                    log_error(format!("M2 failed to set filter {} on channel {} (Status {:?}): {}", id, self.id, status, string));
+                    log_error(format!("M2 failed to close filter {} on channel {} (Status {:?}): {}", id, self.id, status, string));
                     set_error_string(string);
                     Err(status)
                 }
@@ -356,9 +371,9 @@ impl Channel {
         log_debug(format!("Requesting channel destroy. ID: {}", self.id));
         let mut dst: Vec<u8> = Vec::new();
         dst.write_u32::<LittleEndian>(self.id).unwrap();
-        let msg = CommMsg::new_with_args(MsgType::CloseChannel, dst.as_mut_slice());
+        let mut msg = CommMsg::new_with_args(MsgType::CloseChannel, dst.as_mut_slice());
         run_on_m2(|dev |{
-            match dev.write_and_read_ptcmd(msg, 250) {
+            match dev.write_and_read_ptcmd(&mut msg, 250) {
                 M2Resp::Ok(_) => Ok(()),
                 M2Resp::Err{status, string} => {
                     log_error(format!("M2 failed to respond to close channel {} (Status {:?}): {}, assuming close was OK", self.id, status, string));
@@ -379,11 +394,11 @@ impl Channel {
             dst.write_u32::<LittleEndian>(*arg).unwrap();
         }
         dst.extend_from_slice(&ptmsg.data[0..ptmsg.data_size as usize]);
-        let msg = CommMsg::new_with_args(MsgType::TransmitChannelData, dst.as_mut_slice());
+        let mut msg = CommMsg::new_with_args(MsgType::TransmitChannelData, dst.as_mut_slice());
         log_debug(format!("Channel {} writing message: {}. Response required?: {}", self.id, ptmsg, require_response));
         run_on_m2(|dev| {
             if require_response {
-                match dev.write_and_read_ptcmd(msg, 100) {
+                match dev.write_and_read_ptcmd(&mut msg, 100) {
                     M2Resp::Ok(_) => Ok(()),
                     M2Resp::Err{status, string}  => {
                         log_error(format!("M2 failed to write data to channel {} (Status {:?}): {}", self.id, status, string));
@@ -438,10 +453,10 @@ impl Channel {
         for arg in [pname as u32, pvalue].iter() {
             dst.write_u32::<LittleEndian>(*arg).unwrap();
         }
-        let msg = CommMsg::new_with_args(MsgType::IoctlSet, dst.as_mut_slice());
+        let mut msg = CommMsg::new_with_args(MsgType::IoctlSet, dst.as_mut_slice());
         log_debug(format!("Channel {} writing IOCTL Param: {}. Param value: {}", self.id, pname, pvalue));
         run_on_m2(|dev| {
-            match dev.write_and_read_ptcmd(msg, 100) {
+            match dev.write_and_read_ptcmd(&mut msg, 100) {
                 M2Resp::Ok(_) => Ok(()),
                 M2Resp::Err{status, string}  => {
                     log_error(format!("M2 failed to set IOCTL {} (Status {:?}): {}", self.id, status, string));
@@ -458,10 +473,10 @@ impl Channel {
         for arg in [pname as u32].iter() {
             dst.write_u32::<LittleEndian>(*arg).unwrap();
         }
-        let msg = CommMsg::new_with_args(MsgType::IoctlGet, dst.as_mut_slice());
+        let mut msg = CommMsg::new_with_args(MsgType::IoctlGet, dst.as_mut_slice());
         log_debug(format!("Channel {} requesting IOCTL Param: {}", self.id, pname));
         run_on_m2(|dev| {
-            match dev.write_and_read_ptcmd(msg, 100) {
+            match dev.write_and_read_ptcmd(&mut msg, 100) {
                 M2Resp::Ok(v) => {
                     if v.len() != 4 {
                         log_error(format!("M2 responded to get IOCTL {}, but response was an invalid length!", pname));

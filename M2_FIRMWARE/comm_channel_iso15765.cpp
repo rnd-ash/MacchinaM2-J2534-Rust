@@ -68,9 +68,14 @@ void ISO15765Channel::removeFilter(int id) {
         this->used_mailboxes[id] = false;
         this->flowcontrol_ids[id] = 0x00;
         CustomCan::disableCanFilter(id);
+        if (this->isReceiving) {
+            delete [] this->rxPayload.payload;
+        }
+        this->isReceiving = false;
+        this->clear_to_send = false;
         PCCOMM::respond_ok(MSG_REM_CHAN_FILT, nullptr, 0);
     } else {
-        PCCOMM::respond_err(MSG_REM_CHAN_FILT, ERR_FAILED, "Filter does not exist!");
+        PCCOMM::respond_err(MSG_REM_CHAN_FILT, ERR_INVALID_FILTER_ID, "Filter does not exist!");
     }
 }
 

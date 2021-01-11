@@ -16,6 +16,7 @@ void remove_channel(COMM_MSG *msg);
 void channel_loop();
 void delete_channel(Channel*& ptr);
 void add_channel_filter(COMM_MSG* msg);
+void del_channel_filter(COMM_MSG* msg);
 void send_data(COMM_MSG *msg);
 
 void ioctl_get(COMM_MSG *msg);

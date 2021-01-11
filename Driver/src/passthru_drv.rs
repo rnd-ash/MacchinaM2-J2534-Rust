@@ -52,8 +52,8 @@ pub fn passthru_read_version(
     api_version_ptr: *mut c_char
 ) -> PassthruError {
     let fw_version = run_on_m2(|dev| {
-        let msg = CommMsg::new(MsgType::GetFwVersion);
-        match dev.write_and_read_ptcmd(msg, 250) {
+        let mut msg = CommMsg::new(MsgType::GetFwVersion);
+        match dev.write_and_read_ptcmd(&mut msg, 250) {
             M2Resp::Ok(args) => { Ok(String::from_utf8(args).unwrap()) },
             M2Resp::Err{status, string} => {
                 log_warn(format!("M2 failed to respond to FW_VERSION request: {}", string));
@@ -309,6 +309,18 @@ pub fn set_channel_filter(channel_id: u32, filter_type: FilterType, mask_ptr: *c
             unsafe { *msg_id_ptr = filter_id };
             PassthruError::STATUS_NOERROR
         },
+        Err(e) => e
+    }
+}
+
+/// Stops a channel filter
+/// # Params
+/// * channel_id - Target channel
+/// * filter_type - Filter ID
+///
+pub fn del_channel_filter(channel_id: u32, filter_id: u32) -> PassthruError {
+    match channels::ChannelComm::remove_filter(channel_id, filter_id) {
+        Ok(_) => PassthruError::STATUS_NOERROR,
         Err(e) => e
     }
 }

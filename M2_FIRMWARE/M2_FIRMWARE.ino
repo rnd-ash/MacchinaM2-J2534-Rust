@@ -98,6 +98,9 @@ void loop() {
     case MSG_SET_CHAN_FILT:
       add_channel_filter(&msg);
       break;
+    case MSG_REM_CHAN_FILT:
+      del_channel_filter(&msg);
+      break;
     case MSG_TX_CHAN_DATA:
       send_data(&msg);
       break;

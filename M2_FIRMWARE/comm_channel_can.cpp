@@ -99,7 +99,7 @@ void CanChannel::removeFilter(int id) {
         CustomCan::disableCanFilter(id);
         PCCOMM::respond_ok(MSG_REM_CHAN_FILT, nullptr, 0);
     } else {
-        PCCOMM::respond_err(MSG_REM_CHAN_FILT, ERR_INVALID_MSG_ID, nullptr);
+        PCCOMM::respond_err(MSG_REM_CHAN_FILT, ERR_INVALID_FILTER_ID, nullptr);
     }
 }
 

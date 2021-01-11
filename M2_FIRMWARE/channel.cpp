@@ -106,6 +106,35 @@ void reset_all_channels() {
     }
 }
 
+void del_channel_filter(COMM_MSG* msg) {
+    if (msg->arg_size != 8) {
+        PCCOMM::respond_err(MSG_REM_CHAN_FILT, ERR_FAILED, "Message size not valid");
+        return;
+    }
+    unsigned int channel_id;
+    unsigned int filter_id;
+
+    if (channel_id == CAN_CHANNEL_ID) {
+        if (canChannel != nullptr) {
+            canChannel->removeFilter(filter_id);
+            return;
+        } else {
+            PCCOMM::respond_err(MSG_REM_CHAN_FILT, ERR_INVALID_CHANNEL_ID, "Can based channel null");
+            return;
+        }
+    } else if (channel_id == KLINE_CHANNEL_ID) {
+        if (klineChannel != nullptr) {
+            klineChannel->removeFilter(filter_id);
+            return;
+        } else {
+            PCCOMM::respond_err(MSG_REM_CHAN_FILT, ERR_INVALID_CHANNEL_ID, "Kline based channel null");
+            return;
+        }
+    }
+
+
+}
+
 void add_channel_filter(COMM_MSG* msg) {
     unsigned int channel_id;
     unsigned int filter_id;
