@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 path="debug"
 
@@ -9,11 +9,21 @@ else
     cargo build
 fi
 
-echo "Copying JSON to ~/.passthru/"
-cp ../macchina.json ~/.passthru/macchina.so
 
-#This is for macOS, uncomment out for Linux"
-echo "Copying library to ~/.passthru/"
-#cp target/${path}/libm2_driver.so ~/.passthru/macchina.so
-cp target/${path}/libm2_driver.dylib ~/.passthru/macchina.dylib
+UNAME=$(UNAME)
+if [ `UNAME` = Darwin ]; then
+    echo "Copying JSON to ~/.passthru/"
+    cp ../macchina.json ~/.passthru/macchina.json
+    echo "Copying the driver to ~/.passthru/"
+    cp target/${path}/libm2_driver.dylib ~/.passthru/macchina.dylib
+    
+else
+    echo "Copying JSON to ~/.passthru/"
+    cp ../macchina.json ~/.passthru/macchina.json
+    echo "Copying the driver to ~/.passthru/"
+    cp target/${path}/libm2_driver.so ~/.passthru/macchina.so
+fi
+
 echo "Driver install is complete. Happy car hacking!"
+
+
