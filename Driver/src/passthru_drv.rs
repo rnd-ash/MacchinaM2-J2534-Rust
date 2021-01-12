@@ -7,6 +7,7 @@ use lazy_static::lazy_static;
 use std::sync::Mutex;
 use crate::channels::ChannelComm;
 use crate::logger::*;
+use std::ptr::write;
 
 /// J2534 API Version supported - In this case 04.04
 const API_VERSION: &str = "04.04";
@@ -17,7 +18,9 @@ lazy_static! {
     pub static ref LAST_ERROR_STR: Mutex<String> = Mutex::new(String::from(""));
 }
 
-#[allow(unused_must_use)]
+/// Sets the driver error string if a function returned ERR_FAILED
+/// This string is then retrieved by the application using the driver
+/// by calling Passthru_get_last_error
 pub fn set_error_string(input: String) {
     let mut state = LAST_ERROR_STR.lock().unwrap();
     std::mem::replace(&mut *state, input);
@@ -79,6 +82,8 @@ pub fn passthru_read_version(
     PassthruError::STATUS_NOERROR
 }
 
+/// This retrieves the last error string which was set when a function returned
+/// ERR_FAILED
 pub fn passthru_get_last_error(dest: *mut c_char) -> PassthruError {
     match copy_str_unsafe(dest, LAST_ERROR_STR.lock().unwrap().as_str()) {
         false => PassthruError::ERR_FAILED,
@@ -89,100 +94,134 @@ pub fn passthru_get_last_error(dest: *mut c_char) -> PassthruError {
 
 pub fn passthru_open(device_id: *mut u32) -> PassthruError {
     logger::log_info_str("PassthruOpen called");
+    // Check if the device is already loaded
     if M2.read().unwrap().is_some() {
-        return PassthruError::ERR_DEVICE_IN_USE;
+        PassthruError::ERR_DEVICE_IN_USE
     } else {
+        // Try to open a connection
         match MacchinaM2::open_connection() {
             Ok(dev) => {
+                // Device loaded OK!
                 if let Ok(ptr) = M2.write().as_deref_mut() {
                     *ptr = Some(dev);
-                    unsafe { std::ptr::write(device_id, DEVICE_ID) };
-                    return PassthruError::STATUS_NOERROR;
+                    unsafe { write(device_id, DEVICE_ID) };
+                    PassthruError::STATUS_NOERROR
+                } else {
+                    // Something happened trying to write to the static reference of the M2
+                    set_error_string(format!("Failed to obtain write access to M2"));
+                    PassthruError::ERR_FAILED
                 }
-                set_error_string(format!("Failed to obtain write access to M2"));
-                return PassthruError::ERR_FAILED;
             }
             Err(x) => {
+                // Error loading the device driver. Could be due to the device
+                // not being connected to the PC, or a serial error
                 logger::log_error(format!("Cannot open com port. Error: {}", x));
-                set_error_string(format!("COM Port open failed with error {}", x));
-                return PassthruError::ERR_DEVICE_NOT_CONNECTED
+                set_error_string(format!("Serial port open failed with error {}", x));
+                PassthruError::ERR_DEVICE_NOT_CONNECTED
             }
         }
     }
 }
 
+/// Attempts to close the device
 pub fn passthru_close(device_id: u32) -> PassthruError {
     logger::log_info(format!("PassthruClose called. Device ID: {}", device_id));
-    // Device ID which isn't our device ID
+    // Device ID which isn't our device ID - So it cannot be for this driver!
     if device_id != DEVICE_ID {
-        return PassthruError::ERR_INVALID_DEVICE_ID
+        return PassthruError::ERR_INVALID_DEVICE_ID;
     }
     if let Ok(d) = M2.write().as_deref_mut() {
         match d {
             Some(dev) => {
+                dev.stop(); // Terminate the M2 connection
                 // Kill all open channels if any exist
-                dev.stop();
                 channels::ChannelComm::force_destroy_all_channels();
-                *d = None;
-                return PassthruError::STATUS_NOERROR;
+                *d = None; // Set M2 reference to None
+                PassthruError::STATUS_NOERROR
             },
-            None => {return PassthruError::STATUS_NOERROR}
+            // Already terminated, just return NO_ERROR
+            None => PassthruError::STATUS_NOERROR
         }
     } else {
-        return PassthruError::ERR_FAILED;
+        // Something unknown happened when trying to write to the RwLockGuard
+        set_error_string("Error obtaining access to RwLockGuard".into());
+        PassthruError::ERR_FAILED
     }
 }
 
+/// Attempts to connect to a logical communication channel with the vehicle
+/// # Params
+/// * device_id - Device ID of the adapter
+/// * protocol_id - Protocol to connect with
+/// * flags - Connection protocol flags
+/// * Baud_rate - Bus speed of the communication channel
+/// * channel_id_ptr - Pointer to write the channel ID of the opened communication link to
 pub fn passthru_connect(device_id: u32, protocol_id: u32, flags: u32, baud_rate: u32, channel_id_ptr: *mut u32) -> PassthruError {
     if device_id != DEVICE_ID {
         // Diagnostic Software messed up here. Not my device ID!
         set_error_string(format!("Not M2s device ID. Expected {}, got {}", DEVICE_ID, device_id));
         return PassthruError::ERR_DEVICE_NOT_CONNECTED;
     }
+    // Fatal error by diagnostic software - Cannot happen!
     if channel_id_ptr.is_null() {
         logger::log_error_str("Channel destination pointer is null!?");
         return PassthruError::ERR_NULL_PARAMETER;
     }
 
+    // Obtain the protocol type
     match Protocol::from_raw(protocol_id) {
-        Some(protocol) => {
+        Some(protocol) => { // Valid protocol
+            // Try to create the logical communication channel
             match ChannelComm::create_channel(protocol, baud_rate, flags) {
-                Ok(chan_id) => {
-                    unsafe { *channel_id_ptr = chan_id };
+                Ok(channel_id) => { // Channel ID creation was OK! - Save it to the pointer
+                    unsafe { *channel_id_ptr = channel_id };
                     PassthruError::STATUS_NOERROR
                 },
+                // Error creating channel, return the error
                 Err(x) => x
             }
         },
-        None => {
+        None => { // Protocol ID was invalid (Not found in J2534 spec), throw an error
             logger::log_error(format!("{} is not recognised as a valid protocol ID!", protocol_id));
             PassthruError::ERR_INVALID_PROTOCOL_ID
         }
     }
 }
 
+/// Attempts to destroy a logical communication channel set up by the device
+/// # Params
+/// * channel_id - Channel ID set by passthru_connect to destroy
 pub fn passthru_disconnect(channel_id: u32) -> PassthruError {
+    // Try to destroy the channel
     match ChannelComm::destroy_channel(channel_id as u32) {
-        Ok(_) => PassthruError::STATUS_NOERROR,
-        Err(e) => e
+        Ok(_) => PassthruError::STATUS_NOERROR, // All good!
+        Err(e) => e // Error destroying, return the error
     }
 }
 
+/// Runs an IOCTL operation on a provided channel
+/// # Params
+/// * channel_id - Target channel to perform the IOCTL operation on
+/// * ioctl_id - IOCTL Operation type (Per J2534 spec)
+/// * input pointer (See J2534 spec)
+/// * output pointer (See J2534 spec)
 pub fn passthru_ioctl(
     channel_id: u32,
     ioctl_id: u32,
     input_ptr: *mut libc::c_void,
     output_ptr: *mut libc::c_void,
 ) -> PassthruError {
+    // Try to parse the IOCTL ID
     let ioctl_opt = match IoctlID::from_raw(ioctl_id) {
-        Some(p) => p,
-        None => {
+        Some(p) => p, // Successful parse
+        None => { // invalid IOCTL ID
             log_error(format!("IOCTL Param {:08X} is invalid", ioctl_id));
             return PassthruError::ERR_INVALID_IOCTL_ID
         }
     };
 
     match ioctl_opt {
+        // READ VBATT: Input: NULL, Output: unsigned long
         IoctlID::READ_VBATT => {
             if output_ptr.is_null() {
                 log_error_str("Cannot read battery voltage. Output ptr is null");
@@ -190,13 +229,17 @@ pub fn passthru_ioctl(
             }
             ioctl::read_vbatt(output_ptr as *mut u32)
         },
+
+        // READ PROG VOLTAGE: Input: NULL, Output: unsigned long
         IoctlID::READ_PROG_VOLTAGE => {
             if output_ptr.is_null() {
                 log_error_str("Cannot read programming voltage. Output ptr is null");
                 return PassthruError::ERR_NULL_PARAMETER 
             }
             ioctl::read_prog_voltage(output_ptr as *mut u32)
-        }
+        },
+
+        // SET CONFIG: Input: SCONFIG_LIST, Output: NULL
         IoctlID::SET_CONFIG => {
             if input_ptr.is_null() {
                 log_error_str("Cannot set config. Input ptr is null");
@@ -205,6 +248,7 @@ pub fn passthru_ioctl(
             ioctl::set_config(channel_id, unsafe { (input_ptr as *mut SConfigList).as_ref().unwrap() })
         }
 
+        // GET CONFIG: Input: SCONFIG_LIST, Output: NULL
         IoctlID::GET_CONFIG => {
             if input_ptr.is_null() {
                 log_error_str("Cannot get config. Input ptr is null");
@@ -212,6 +256,8 @@ pub fn passthru_ioctl(
             }
             ioctl::get_config(channel_id, unsafe { (input_ptr as *mut SConfigList).as_ref().unwrap() })
         }
+
+        // FIVE BAUD INIT: Input: SBYTE_ARRAY, Output: SBYTE_ARRAY
         IoctlID::FIVE_BAUD_INIT => {
             if input_ptr.is_null() {
                 log_error_str("Cannot run five baud init. Input ptr is null");
@@ -227,6 +273,8 @@ pub fn passthru_ioctl(
                 unsafe { (input_ptr as *mut SBYTE_ARRAY).as_mut().unwrap() }
             )
         },
+
+        // FAST INIT: Input: PASSTHRU_MSG, Output: PASSTHRU_MSG
         IoctlID::FAST_INIT => {
             if input_ptr.is_null() {
                 log_error_str("Cannot run fast init. Input ptr is null");
@@ -242,11 +290,23 @@ pub fn passthru_ioctl(
                 unsafe { (input_ptr as *mut PASSTHRU_MSG).as_mut().unwrap() }
             )
         },
+
+        // CLEAR TX BUFFER : Input: NULL, Output: NULL
         IoctlID::CLEAR_TX_BUFFER => ioctl::clear_tx_buffer(channel_id),
+
+        // CLEAR RX BUFFER : Input: NULL, Output: NULL
         IoctlID::CLEAR_RX_BUFFER => ioctl::clear_rx_buffer(channel_id),
+
+        // CLEAR PERIODIC MSGS : Input: NULL, Output: NULL
         IoctlID::CLEAR_PERIODIC_MSGS => ioctl::clear_periodic_msgs(channel_id),
+
+        // CLEAR MSG FILTERS : Input: NULL, Output: NULL
         IoctlID::CLEAR_MSG_FILTERS => ioctl::clear_msg_filters(channel_id),
+
+        // CLEAR FUNCT MSG LOOKUP TABLE : Input: NULL, Output: NULL
         IoctlID::CLEAR_FUNCT_MSG_LOOKUP_TABLE => ioctl::clear_funct_msg_lookup_table(channel_id),
+
+        // ADD TO FUNCT MSG LOOKUP TABLE : Input: SBYTE_ARRAY, Output: NULL
         IoctlID::ADD_TO_FUNCT_MSG_LOOKUP_TABLE => {
             if input_ptr.is_null() {
                 log_error_str("Cannot add to function message lookup table. Input ptr is null");
@@ -254,6 +314,8 @@ pub fn passthru_ioctl(
             }
             ioctl::add_to_funct_msg_lookup_table(channel_id, unsafe { (input_ptr as *mut SBYTE_ARRAY).as_mut().unwrap() })
         },
+
+        // DELETE FROM FUNCT MSG LOOKUP TABLE : Input: SBYTE_ARRAY, Output: NULL
         IoctlID::DELETE_FROM_FUNCT_MSG_LOOKUP_TABLE => {
             if input_ptr.is_null() {
                 log_error_str("Cannot delete from function message lookup table. Input ptr is null");

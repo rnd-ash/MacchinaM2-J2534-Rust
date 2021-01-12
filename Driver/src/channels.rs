@@ -240,7 +240,7 @@ impl ChannelComm {
                 Ok(mut wg) => {
                     if let Some(channel) = wg.as_mut() {
                         let tx_flags = LittleEndian::read_u32(&msg.args[1..5]);
-                        let data = &msg.args[5..msg.arg_size as usize];
+                        let data = &msg.args[5..];
                         channel.on_receive_data(tx_flags, data)
                     }
                 },

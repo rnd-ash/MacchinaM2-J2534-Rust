@@ -88,6 +88,7 @@ impl Logger {
                 eprintln!("LOG FILE CREATE ERROR! [{}]", x);
             }
         }
+        println!("{}", txt);
         let mut ops = std::fs::OpenOptions::new()
             .write(true)
             .append(true)

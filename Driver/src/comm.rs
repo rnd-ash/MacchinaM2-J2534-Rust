@@ -111,7 +111,7 @@ impl MacchinaM2 {
             Err(e) => {return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Error opening port {}", e.to_string())));}
         };
 
-        // Create our Rx queue for incomming messages
+        // Create our Rx queue for incoming messages
         let rx_queue = Arc::new(RwLock::new(HashMap::new()));
         let rx_queue_t = rx_queue.clone();
 
@@ -139,8 +139,8 @@ impl MacchinaM2 {
                         log_warn(format!("Could not write TxPayload to M2 {}", e));
                     }
                 }
-                let incomming = port.read(&mut read_buffer[read_count..]).unwrap_or(0);
-                read_count += incomming;
+                let incoming = port.read(&mut read_buffer[read_count..]).unwrap_or(0);
+                read_count += incoming;
                 let activity = read_count >= COMM_MSG_SIZE;
                 //if (read_count > 0) {
                 //    println!("READ {}", read_count);
@@ -172,7 +172,6 @@ impl MacchinaM2 {
             return Err(std::io::Error::new(std::io::ErrorKind::ConnectionAborted, "Error initializing M2"));
         }
 
-        //while is_started.load(Ordering::Relaxed) == false {} // Wait for thread to start
         let m = MacchinaM2 {
             rx_queue,
             handler,
@@ -182,6 +181,8 @@ impl MacchinaM2 {
         return Ok(m);
     }
 
+    /// Writes a CommMsg to the M2, and does not retrieve a response
+    /// from the M2
     pub fn write_comm_struct(&self, mut s: CommMsg) -> PTResult<()> {
         s.msg_id = 0x00; // Tell M2 it doesn't have to respond to request
         match self.tx_send_queue.send(s) {
@@ -193,29 +194,43 @@ impl MacchinaM2 {
         }
     }
 
+    /// Writes a commMsg to the M2, and then waits for its response
+    /// # Params
+    /// * s - CommMsg to write to the M2
+    /// * timeout_ms - Max timeout for waiting for the M2's response, in milliseconds
     pub fn write_and_read_ptcmd(&self, s: &mut CommMsg, timeout_ms: u128) -> M2Resp {
         match self.write_and_read(s, timeout_ms) {
+            // Error writing or reading data from the M2
             Err(e) => M2Resp::Err { status: e, string: format!("M2 communication failure: {:?}", e) },
-            Ok(resp) => {
+            // M2 responded with a message, process it
+            Ok(mut resp) => {
+                // Process the status of the message, this should be a PassthruError
                 let status = match PassthruError::from_raw(resp.args[0] as u32) {
-                    Some(x) => x,
+                    Some(x) => x, // Error processed successfully!
                     None => {
+                        // M2 responded with an error code not found in J2534 Spec??
                         return M2Resp::Err{ status: PassthruError::ERR_FAILED, string: format!("Unrecognized status {}", resp.args[0]) }
                     }
                 };
+                resp.args.drain(0..1); // Drain the first byte from args as that was the status ID
+                // Match the status returned
                 match status {
-                    PassthruError::STATUS_NOERROR => {
-                        match resp.arg_size {
-                            1 => M2Resp::Ok(Vec::new()),
-                            _ => M2Resp::Ok(Vec::from(&resp.args[1..resp.arg_size as usize]))
+                    PassthruError::STATUS_NOERROR => { // Operation completed successfully
+                        match resp.args.len() {
+                            1 => M2Resp::Ok(Vec::new()), // No args in M2's response
+                            _ => M2Resp::Ok(resp.args) // Store M2's args
                         }
                     },
-                    _ => {
-                        let text = if resp.arg_size > 1 {
-                            String::from_utf8(Vec::from(&resp.args[1..resp.arg_size as usize])).unwrap()
+                    _ => { // M2 returned an error!
+                        // Check if M2 responded with an error string
+                        let text = if resp.args.len() > 1 {
+                            // Yes, set the error string
+                            String::from_utf8(resp.args).unwrap()
                         } else {
-                            format!("No error given")
+                            // No error string
+                            format!("")
                         };
+                        // Return The formatted error
                         M2Resp::Err { status, string: text }
                     }
                 }
@@ -255,7 +270,9 @@ impl MacchinaM2 {
 const COMM_MSG_SIZE: usize = 4096;
 const COMM_MSG_ARG_SIZE: usize = COMM_MSG_SIZE - 4;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+/// MsgTypes definitions
+/// These are found in comm.h of the M2's firmware
 pub enum MsgType {
     Unknown = 0x00,
     LogMsg = 0x01,
@@ -272,12 +289,6 @@ pub enum MsgType {
     GetFwVersion = 0xAB,
     #[cfg(test)]
     TestMessage = 0xFF
-}
-
-impl std::cmp::PartialEq for MsgType {
-    fn eq(&self, other: &MsgType) -> bool {
-        *self as u8 == *other as u8
-    }
 }
 
 impl MsgType {
@@ -304,31 +315,20 @@ impl MsgType {
         }
     }
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 /// Comm message that is sent and received fro the M2 module
 pub struct CommMsg {
+    /// Unique ID of the message
     pub msg_id: u8,
-    pub msg_type: MsgType,                  // Message type
-    pub arg_size: u16,                 // Arg size
-    pub args: Vec<u8>, // Args
+    /// Message type
+    pub msg_type: MsgType,
+    /// Args of the message
+    pub args: Vec<u8>,
 }
 
 impl std::fmt::Display for CommMsg {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "COMM_MSG: ID: {:02X} Type: {:?}, Size: {} Args=[", self.msg_id, self.msg_type, self.arg_size)?;
-        (0..std::cmp::min(self.arg_size, COMM_MSG_ARG_SIZE as u16)).for_each(|b| {
-            write!(f, "{:02X}", self.args[b as usize]).unwrap();
-            if b < self.arg_size - 1 {
-                write!(f, " ").unwrap();
-            }
-        });
-        write!(f, "]")
-    }
-}
-
-impl PartialEq<CommMsg> for CommMsg {
-    fn eq(&self, other: &CommMsg) -> bool {
-        self.msg_type as u8 == other.msg_type as u8 && self.arg_size == other.arg_size
+        write!(f, "COMM_MSG: ID: {:02X} Type: {:?}, Args={:02X?}", self.msg_id, self.msg_type, self.args)
     }
 }
 
@@ -338,7 +338,6 @@ impl CommMsg {
         CommMsg {
             msg_id: buf[0],
             msg_type: MsgType::from_u8(&buf[1]),
-            arg_size: size as u16,
             args: Vec::from(&buf[4..size+4]),
         }
     }
@@ -346,7 +345,6 @@ impl CommMsg {
     pub fn new(msg_type: MsgType) -> Self {
         CommMsg {
             msg_type,
-            arg_size: 0,
             args: Vec::new(),
             msg_id: 0,
         }
@@ -356,7 +354,6 @@ impl CommMsg {
         let max_copy = std::cmp::min(args_array.len(), COMM_MSG_ARG_SIZE);
         CommMsg {
             msg_type,
-            arg_size: args_array.len() as u16,
             args: Vec::from(&args_array[0..max_copy]),
             msg_id: 0,
         }
@@ -377,11 +374,11 @@ impl CommMsg {
     }
 
     pub fn to_slice(&self) -> Vec<u8> {
-        let mut params: Vec<u8> = Vec::with_capacity(self.arg_size as usize + 4);
-        params.write_u16::<LittleEndian>(self.arg_size+2).unwrap(); // 0,1
+        let mut params: Vec<u8> = Vec::with_capacity(self.args.len() + 4);
+        params.write_u16::<LittleEndian>(self.args.len() as u16+2).unwrap(); // 0,1
         params.push(self.msg_id); // 2
         params.push(self.msg_type as u8); // 3
-        params.append(&mut self.args[0..self.arg_size as usize].to_vec());
+        params.extend_from_slice(&self.args);
         return params;
     }
 }

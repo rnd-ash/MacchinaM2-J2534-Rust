@@ -1,16 +1,17 @@
-
 use J2534Common::{IoctlParam, PASSTHRU_MSG, Parsable, PassthruError, SBYTE_ARRAY, SConfigList};
 use crate::{channels, comm::*, logger::{log_info_str, log_warn, log_warn_str}, passthru_drv::set_error_string};
 use crate::logger::{log_error};
 use byteorder::{ByteOrder, LittleEndian};
 
+
+/// Reads the battery voltage into an output pointer, storing the value as mV
+/// # Params
+/// * output_ptr - Output pointer to store batter voltage into
 pub fn read_vbatt(output_ptr: *mut u32) -> PassthruError {
-    log_info_str("Getting voltage");
-    let mut msg = CommMsg::new(MsgType::ReadBatt);
     run_on_m2(|dev| {
-        match dev.write_and_read_ptcmd(&mut msg, 250) {
+        match dev.write_and_read_ptcmd(&mut CommMsg::new(MsgType::ReadBatt), 250) {
             M2Resp::Ok(args) => {
-                if args.len() < 4 { // This should stop a panic from randomly occuring when M2 is under load
+                if args.len() < 4 { // This should stop a panic from randomly occurring when M2 is under load
                     log_error(format!("Error reading battery voltage - Args size was not correct"));
                     set_error_string("M2 responded with wrong args size".into());
                     return Err(PassthruError::ERR_FAILED)
@@ -46,8 +47,7 @@ pub fn set_config(channel_id: u32, cfg_ptr: &SConfigList) -> PassthruError {
                             return e
                         }
                     } else {
-                        log_error(format!("Cannot run setconfig. Invalid IOCTL Param name: {:08X}", param.parameter));
-                        return PassthruError::ERR_INVALID_IOCTL_VALUE
+                        return PassthruError::ERR_NOT_SUPPORTED
                     }
                 }
             }
@@ -62,7 +62,7 @@ pub fn get_config(channel_id: u32, cfg_ptr: &SConfigList) -> PassthruError {
             None => return PassthruError::ERR_NULL_PARAMETER,
             Some(mut param) => {
                 if param.parameter >= 0x20 {
-                    log_warn(format!("getconfig param name is reserved / tool specific?. Param: {:08X}, value: {:08X}", param.parameter, param.value));
+                    log_warn(format!("get config param name is reserved / tool specific?. Param: {:08X}, value: {:08X}", param.parameter, param.value));
                 } else {
                     if let Some(pname) = IoctlParam::from_raw(param.parameter) {
                         if let Ok(pvalue) = channels::ChannelComm::ioctl_get_cfg(channel_id, pname) {
@@ -71,8 +71,7 @@ pub fn get_config(channel_id: u32, cfg_ptr: &SConfigList) -> PassthruError {
                             return PassthruError::ERR_FAILED
                         }
                     } else {
-                        log_error(format!("Cannot run getconfig. Invalid IOCTL Param name: {:08X}", param.parameter));
-                        return PassthruError::ERR_INVALID_IOCTL_VALUE
+                        return PassthruError::ERR_NOT_SUPPORTED
                     }
                 }
             }
@@ -127,6 +126,6 @@ pub fn add_to_funct_msg_lookup_table(channel_id: u32, input: &mut SBYTE_ARRAY) -
 
 #[allow(unused_variables)] // TODO
 pub fn delete_from_funct_msg_lookup_table(channel_id: u32, input: &mut SBYTE_ARRAY) -> PassthruError {
-    log_warn_str("Delete ffrom function message lookup table unimplemented");
+    log_warn_str("Delete from function message lookup table unimplemented");
     PassthruError::STATUS_NOERROR
 }
