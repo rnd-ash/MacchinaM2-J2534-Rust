@@ -117,9 +117,7 @@ void CanChannel::sendMsg(uint32_t tx_flags, char* data, int data_size, bool resp
     f.length = data_size - 4;
     f.id = data[0] << 24 | data[1] << 16 | data[2] << 8 | data[3] << 0;
     memcpy(&f.data.bytes[0], &data[4], data_size-4);
-    digitalWrite(DS7_GREEN, LOW);
     CustomCan::sendFrame(&f);
-    digitalWrite(DS7_GREEN, HIGH);
     if (respond) {
         PCCOMM::respond_ok(MSG_TX_CHAN_DATA, nullptr, 0);
     }

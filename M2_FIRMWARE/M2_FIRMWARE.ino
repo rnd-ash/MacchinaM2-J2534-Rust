@@ -4,12 +4,10 @@
 #include "j2534_mini.h"
 #include "channel.h"
 
-#pragma GCC diagnostic error "-Wall"
-
 //#define FW_TEST
 #define MACCHINA_V4
 
-#define FW_VERSION "0.0.5"
+#define FW_VERSION "0.0.6"
 
 CAN_FRAME input;
 M2_12VIO M2IO;
@@ -32,14 +30,13 @@ void setup() {
   digitalWrite(DS7_GREEN, HIGH);
   digitalWrite(DS7_BLUE, HIGH);
   digitalWrite(DS7_RED, HIGH);
-  set_status_led(0x00); // No connection on powerup
+  set_status_led(0x00); // No connection on power-up
   M2IO.Init_12VIO();
 }
 
 // https://github.com/kenny-macchina/M2VoltageMonitor/blob/master/M2VoltageMonitor_V4/M2VoltageMonitor_V4.ino
 float getVoltage() {
-  float voltage=M2IO.Supply_Volts();
-  voltage /= 1000;
+  float voltage=M2IO.Supply_Volts() / 1000.0;
   voltage=.1795*voltage*voltage-2.2321*voltage+14.596; //calibration curve determined with DSO, assumed good
   //additional correction for M2 V4
 #ifdef MACCHINA_V4
@@ -47,8 +44,8 @@ float getVoltage() {
 #endif
   return voltage;
 }
+
 COMM_MSG msg = {0x00};
-CAN_FRAME f;
 
 void send_v_batt() {
   unsigned long v_batt = getVoltage() * 1000;
@@ -75,7 +72,9 @@ void get_fw_version(COMM_MSG *msg) {
   PCCOMM::respond_ok(MSG_GET_FW_VERSION, (uint8_t*)&FW_VERSION, strlen(FW_VERSION));
 }
 
+#ifdef FW_TEST
 unsigned long lastPing = millis();
+#endif
 
 void loop() {
   if (PCCOMM::read_message(&msg)) {
@@ -120,6 +119,8 @@ void loop() {
       break;
     }
   }
+  channel_loop();
+
   #ifdef FW_TEST
   if (millis() - lastPing > 1000 && isConnected) {
     lastPing = millis();
@@ -128,6 +129,5 @@ void loop() {
     PCCOMM::log_message(buf);
   }
   #endif
-  channel_loop();
 }
  

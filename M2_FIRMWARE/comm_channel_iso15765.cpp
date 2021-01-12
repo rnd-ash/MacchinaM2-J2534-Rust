@@ -104,7 +104,7 @@ void ISO15765Channel::update() {
                     break;
                 default:
                     char buf[70];
-                    sprintf(buf, "CAN ID %04X invalid IOS-TP PCI: %02X. Discarding frame", f.id, f.data.bytes[0]);
+                    sprintf(buf, "CAN ID %04X invalid ISO-TP PCI: %02X. Discarding frame", f.id, f.data.bytes[0]);
                     PCCOMM::log_message(buf);
                     break;
                 }
@@ -305,10 +305,7 @@ void ISO15765Channel::sendMsg(uint32_t tx_flags, char* data, int data_size, bool
         this->clear_to_send = false;
         this->isSending = true;
         this->tx_pci = 0x21;
-
-        digitalWrite(DS7_GREEN, LOW);
         debug_send_frame(f);
-        digitalWrite(DS7_GREEN, HIGH);
         if (respond) {
             PCCOMM::respond_ok(MSG_TX_CHAN_DATA, nullptr, 0);
         }

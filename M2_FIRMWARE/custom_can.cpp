@@ -67,13 +67,13 @@ void CustomCan::disableCanBus() {
 }
 
 void CustomCan::__rx_queue_push_frame(rxQueue &r, CAN_FRAME &f) {
-    //digitalWrite(DS7_GREEN, LOW);
+    digitalWrite(DS7_GREEN, LOW);
     uint8_t nextEntry = (r.head + 1) % MAX_RX_QUEUE;
     // Queue is full, data is lost
-    if (nextEntry == r.tail)  return;
+    if (nextEntry == r.tail) return;
     memcpy((void *)&r.buffer[r.head], (void *)&f, sizeof(CAN_FRAME));
     r.head = nextEntry;
-    //digitalWrite(DS7_GREEN, HIGH);
+    digitalWrite(DS7_GREEN, HIGH);
 }
 
 bool CustomCan::__rx_queue_pop_frame(rxQueue &r, CAN_FRAME &f) {
