@@ -7,12 +7,11 @@ use lazy_static::lazy_static;
 use std::sync::Mutex;
 use crate::channels::ChannelComm;
 use crate::logger::*;
-use crate::ioctl::*;
 
 /// J2534 API Version supported - In this case 04.04
 const API_VERSION: &str = "04.04";
 /// DLL (Driver) version of this library
-const DLL_VERSION: &str = "0.1";
+const DLL_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 lazy_static! {
     pub static ref LAST_ERROR_STR: Mutex<String> = Mutex::new(String::from(""));

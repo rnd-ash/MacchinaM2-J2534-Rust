@@ -5,9 +5,8 @@ mod comm;
 mod channels;
 mod ioctl;
 mod passthru_drv;
-use logger::{log_error, log_error_str};
+use logger::{log_error_str};
 use passthru_drv::*;
-use ioctl::*;
 
 #[cfg(test)]
 mod lib_tests;
@@ -116,7 +115,7 @@ pub extern "stdcall" fn PassThruWriteMsgs(
 }
 
 #[no_mangle]
-#[allow(non_snake_case)]
+#[allow(non_snake_case, unused_variables)]
 pub extern "stdcall" fn PassThruStartPeriodicMsg(
     ChannelID: u32,
     pMsg: *const PASSTHRU_MSG,
@@ -127,7 +126,7 @@ pub extern "stdcall" fn PassThruStartPeriodicMsg(
 }
 
 #[no_mangle]
-#[allow(non_snake_case)]
+#[allow(non_snake_case, unused_variables)]
 pub extern "stdcall" fn PassThruStopPeriodicMsg(ChannelID: u32, MsgID: u32) -> i32 {
     PassthruError::STATUS_NOERROR as i32
 }
@@ -144,7 +143,7 @@ pub extern "stdcall" fn PassThruIoctl(
 }
 
 #[no_mangle]
-#[allow(non_snake_case)]
+#[allow(non_snake_case, unused_variables)]
 pub extern "stdcall" fn PassThruSetProgrammingVoltage(
     DeviceID: u32,
     PinNumber: u32,

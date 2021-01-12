@@ -234,19 +234,19 @@ impl ChannelComm {
     }
 
     /// Used by the receiver thread running on the M2 to write data to our Rx buffer
-    pub fn receive_channel_data(msg: &CommMsg) -> Result<()> {
-        match ChannelID::from_u32(msg.args[0] as u32)?.get_channel().write() {
-            Ok(mut channel) => {
-                if let Some(c) = channel.as_mut() {
-                    let tx_flags = LittleEndian::read_u32(&msg.args[1..5]);
-                    let data = &msg.args[5..msg.arg_size as usize];
-                    c.on_receive_data(tx_flags, data)
+    pub fn receive_channel_data(msg: &CommMsg) {
+        if let Ok(c) = ChannelID::from_u32(msg.args[0] as u32) {
+            match c.get_channel().write() {
+                Ok(mut wg) => {
+                    if let Some(channel) = wg.as_mut() {
+                        let tx_flags = LittleEndian::read_u32(&msg.args[1..5]);
+                        let data = &msg.args[5..msg.arg_size as usize];
+                        channel.on_receive_data(tx_flags, data)
+                    }
+                },
+                Err(_) => {
+                    log_warn(format!("Error sending data to channel {} - Write guard failed", msg.args[0]))
                 }
-                Ok(())
-            }
-            Err(e) => {
-                set_error_string(format!("Write guard failed: {}", e));
-                Err(PassthruError::ERR_FAILED)
             }
         }
     }

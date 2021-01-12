@@ -374,8 +374,8 @@ impl std::fmt::Display for PASSTHRU_MSG {
         f.write_str(format!(
             "Protocol: {}, RxStatus: {:08X}, TxFlags: {:08X}, Data: {:02X?}", 
             Protocol::from_raw(self.protocol_id).unwrap(),
-            unsafe { self.rx_status },
-            unsafe { self.tx_flags },
+            self.rx_status,
+            self.tx_flags,
             &self.data[0..self.data_size as usize]
             
         ).as_str())

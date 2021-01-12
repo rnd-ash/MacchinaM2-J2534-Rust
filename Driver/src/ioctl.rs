@@ -1,7 +1,7 @@
 
 use J2534Common::{IoctlParam, PASSTHRU_MSG, Parsable, PassthruError, SBYTE_ARRAY, SConfigList};
 use crate::{channels, comm::*, logger::{log_info_str, log_warn, log_warn_str}, passthru_drv::set_error_string};
-use crate::logger::{log_debug, log_error, log_info};
+use crate::logger::{log_error};
 use byteorder::{ByteOrder, LittleEndian};
 
 pub fn read_vbatt(output_ptr: *mut u32) -> PassthruError {
@@ -27,6 +27,7 @@ pub fn read_vbatt(output_ptr: *mut u32) -> PassthruError {
     }).unwrap()
 }
 
+#[allow(unused_variables)]
 pub fn read_prog_voltage(output_ptr: *mut u32) -> PassthruError {
     log_warn_str("Read programming voltage unimplemented");
     PassthruError::STATUS_NOERROR
@@ -80,11 +81,13 @@ pub fn get_config(channel_id: u32, cfg_ptr: &SConfigList) -> PassthruError {
     PassthruError::STATUS_NOERROR
 }
 
+#[allow(unused_variables)] // TODO
 pub fn five_baud_init(channel_id: u32, input: &mut SBYTE_ARRAY, output: &mut SBYTE_ARRAY) -> PassthruError {
     log_warn_str("Five baud init unimplemented");
     PassthruError::STATUS_NOERROR
 }
 
+#[allow(unused_variables)] // TODO
 pub fn fast_init(channel_id: u32, input: &mut PASSTHRU_MSG, output: &mut PASSTHRU_MSG) -> PassthruError {
     log_warn_str("Five baud init unimplemented");
     PassthruError::STATUS_NOERROR
@@ -98,26 +101,31 @@ pub fn clear_rx_buffer(channel_id: u32) -> PassthruError {
     channels::ChannelComm::clear_rx_buffer(channel_id)
 }
 
+#[allow(unused_variables)] // TODO
 pub fn clear_periodic_msgs(channel_id: u32) -> PassthruError {
     log_warn_str("Clear periodic messages unimplemented");
     PassthruError::STATUS_NOERROR
 }
 
+#[allow(unused_variables)] // TODO
 pub fn clear_msg_filters(channel_id: u32) -> PassthruError {
     log_warn_str("Clear message filters unimplemented");
     PassthruError::STATUS_NOERROR
 }
 
+#[allow(unused_variables)] // TODO
 pub fn clear_funct_msg_lookup_table(channel_id: u32) -> PassthruError {
     log_warn_str("Clear message lookup table unimplemented");
     PassthruError::STATUS_NOERROR
 }
 
+#[allow(unused_variables)] // TODO
 pub fn add_to_funct_msg_lookup_table(channel_id: u32, input: &mut SBYTE_ARRAY) -> PassthruError {
     log_warn_str("Add to function message lookup table unimplemented");
     PassthruError::STATUS_NOERROR
 }
 
+#[allow(unused_variables)] // TODO
 pub fn delete_from_funct_msg_lookup_table(channel_id: u32, input: &mut SBYTE_ARRAY) -> PassthruError {
     log_warn_str("Delete ffrom function message lookup table unimplemented");
     PassthruError::STATUS_NOERROR

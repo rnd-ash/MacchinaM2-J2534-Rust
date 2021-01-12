@@ -1,4 +1,4 @@
-use std::{fmt::Formatter, sync::RwLock};
+use std::{sync::RwLock};
 use std::fs::File;
 use std::io;
 use std::io::prelude::*;
@@ -54,10 +54,6 @@ pub fn log_m2_msg(msg: String) {
     LOGGER.read().unwrap().queue_msg(format!("[M2LOG] - {}", msg))
 }
 
-pub fn log_m2_msg_str(msg: &str) {
-    log_info(msg.to_string())
-}
-
 
 pub struct Logger {
     tx_queue: Arc<Mutex<Sender<String>>>
@@ -66,7 +62,7 @@ pub struct Logger {
 impl Logger {
     fn new() -> Self {
         let (tx, rx): (Sender<String>, Receiver<String>) = channel();
-        let log_thread = std::thread::spawn(move||{
+        std::thread::spawn(move||{
             loop {
                 if let Ok(s) = rx.recv() {
                     Logger::write_to_file(s);
@@ -77,6 +73,8 @@ impl Logger {
             tx_queue: Arc::new(Mutex::new(tx))
         }
     }
+
+    #[allow(unused_must_use)]
     pub fn queue_msg(&self, msg: String) {
         self.tx_queue.lock().unwrap().send(msg);
     }
@@ -90,8 +88,6 @@ impl Logger {
                 eprintln!("LOG FILE CREATE ERROR! [{}]", x);
             }
         }
-        println!("{}", txt);
-
         let mut ops = std::fs::OpenOptions::new()
             .write(true)
             .append(true)

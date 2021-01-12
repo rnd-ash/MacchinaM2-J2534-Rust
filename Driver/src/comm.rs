@@ -1,13 +1,13 @@
-use logger::{log_debug, log_error};
+use logger::{log_debug, log_error, log_warn};
 use serialport::*;
-use std::{io::{Write, Read, Error, ErrorKind}, time::Instant};
-use std::sync::{Arc, Mutex, atomic::AtomicU32, atomic::AtomicBool, atomic::Ordering};
+use std::{io::{Write, Read, Error, ErrorKind}};
+use std::sync::{Arc, atomic::AtomicU32, atomic::AtomicBool, atomic::Ordering};
 use std::sync::mpsc::{channel, Sender, Receiver};
 use std::thread::{spawn, JoinHandle};
 use std::sync::RwLock;
 use lazy_static::lazy_static;
 use std::collections::hash_map::HashMap;
-use crate::{channels, logger};
+use crate::{channels, logger::{self}};
 use J2534Common::{PassthruError, Parsable};
 use crate::passthru_drv::set_error_string;
 use byteorder::{ByteOrder, WriteBytesExt, LittleEndian};
@@ -105,7 +105,7 @@ impl MacchinaM2 {
     fn open_conn(port: &str) -> Result<Self> {
         let mut port = match serialport::new(port, 500000).open() {
             Ok(mut p) => {
-                p.set_flow_control(FlowControl::Hardware);
+                p.set_flow_control(FlowControl::Hardware).expect("Fatal. Could not setup hardware flow control");
                 p
             },
             Err(e) => {return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Error opening port {}", e.to_string())));}
@@ -135,7 +135,9 @@ impl MacchinaM2 {
             while is_running_t.load(Ordering::Relaxed) {
                 // Any messages to write?
                 if let Ok(m) = send_rx.try_recv() {
-                    port.write_all(&m.to_slice());
+                    if let Err(e) = port.write_all(&m.to_slice()) {
+                        log_warn(format!("Could not write TxPayload to M2 {}", e));
+                    }
                 }
                 let incomming = port.read(&mut read_buffer[read_count..]).unwrap_or(0);
                 read_count += incomming;
@@ -149,7 +151,9 @@ impl MacchinaM2 {
                     read_buffer.rotate_right(COMM_MSG_SIZE);
                     match msg.msg_type {
                         MsgType::LogMsg => { logger::log_m2_msg(String::from_utf8(Vec::from(msg.args)).unwrap()) },
-                        MsgType::ReceiveChannelData => { channels::ChannelComm::receive_channel_data(&msg); },
+                        MsgType::ReceiveChannelData => {
+                            channels::ChannelComm::receive_channel_data(&msg); 
+                        },
                         _ => { rx_queue_t.write().unwrap().insert(msg.msg_id, msg); }
                     }
                 }
@@ -158,7 +162,9 @@ impl MacchinaM2 {
                 }
             }
             let msg = CommMsg::new_with_args(MsgType::StatusMsg, &[0x00]);
-            port.write_all(&msg.to_slice());
+            if let Err(e) = port.write_all(&msg.to_slice()) {
+                log_warn(format!("Could not write exit message to M2 {}", e));
+            }
             logger::log_debug_str("M2 receiver thread exiting");
         }));
         std::thread::sleep(std::time::Duration::from_millis(50));
@@ -178,8 +184,13 @@ impl MacchinaM2 {
 
     pub fn write_comm_struct(&self, mut s: CommMsg) -> PTResult<()> {
         s.msg_id = 0x00; // Tell M2 it doesn't have to respond to request
-        self.tx_send_queue.send(s);
-        Ok(())
+        match self.tx_send_queue.send(s) {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                set_error_string(format!("Error sending data to M2 TxChannel {}", e));
+                Err(PassthruError::ERR_FAILED)
+            }
+        }
     }
 
     pub fn write_and_read_ptcmd(&self, s: &mut CommMsg, timeout_ms: u128) -> M2Resp {
@@ -222,7 +233,7 @@ impl MacchinaM2 {
             return Err(PassthruError::ERR_FAILED);
         }
         let start_time = std::time::Instant::now();
-        while start_time.elapsed().as_millis() <= 1000 {
+        while start_time.elapsed().as_millis() <= timeout_ms {
             if let Ok(mut lock) = self.rx_queue.write() {
                 if lock.contains_key(&query_id) {
                     log_debug(format!("Command took {}us to execute", start_time.elapsed().as_micros()));
@@ -351,6 +362,7 @@ impl CommMsg {
         }
     }
 
+    #[allow(dead_code)] // Might need this in future
     pub fn put_args(&mut self, args: &[u8]) {
         if args.len() > COMM_MSG_ARG_SIZE {
             logger::log_warn(format!("Input args is {} larger than payload size, truncating", args.len() - COMM_MSG_ARG_SIZE));
@@ -359,6 +371,7 @@ impl CommMsg {
         self.args[0..max_copy].copy_from_slice(&args[0..max_copy]);
     }
 
+    #[allow(dead_code)] // Might need this in future
     pub fn set_type(&mut self, msg_type: MsgType) {
         self.msg_type = msg_type;
     }
@@ -371,71 +384,4 @@ impl CommMsg {
         params.append(&mut self.args[0..self.arg_size as usize].to_vec());
         return params;
     }
-}
-
-pub fn get_batt_voltage() -> PTResult<u32> {
-    let mut msg = CommMsg::new(MsgType::ReadBatt);
-    run_on_m2(|dev| {
-        match dev.write_and_read_ptcmd(&mut msg, 250) {
-            M2Resp::Ok(args) => Ok(byteorder::LittleEndian::read_u32(&args)),
-            M2Resp::Err{status, string: _} => Err(status)
-        }
-    })
-}
-
-
-#[cfg(test)]
-mod comm_test {
-    use rand::Rng;
-    use super::*;
-
-    #[cfg(windows)]
-    const TEST_PORT: &str = "COM12";
-
-    #[cfg(unix)]
-    const TEST_PORT: &str = "/dev/ttyACM0";
-
-    #[test]
-    #[ignore]
-    fn test_io_m2() {
-        let mut tx_errors = 0;
-        let mut rec_fail = 0;
-        let mut macchina = MacchinaM2::open_conn(TEST_PORT)
-            .expect(format!("Could not open COM port {}!", TEST_PORT).as_str());
-
-        // For this test, once we open the comm port,
-        // Fire 100 random COMM messages at the M2 module
-        // (Use type 0xFF to tell Macchina to echo back the same message)
-        // Assert that each received message is the same as what was sent
-        for _ in 0..10 {
-            let args: Vec<u8> = (0..100)
-                .map(|_| rand::thread_rng().gen_range(0, 0xFF))
-                .collect();
-            let msg = CommMsg::new_with_args(MsgType::TestMessage, &args);
-            match macchina.write_and_read(msg, 250) {
-                Err(_) => rec_fail += 1, // Macchina did not respond to our message
-                Ok(x) => {
-                    // Macchina responded!
-                    if x != msg {
-                        // Check if received payload == sent payload
-                        tx_errors += 1; // Some corruption occured!
-                    }
-                }
-            }
-        }
-        macchina.stop();
-        assert!(tx_errors == 0);
-        assert!(rec_fail == 0);
-    }
-}
-
-#[test]
-fn test_comm_msg() {
-    let mut msg = CommMsg::new_with_args(MsgType::GetFwVersion, &[0x01 as u8, 0x02 as u8, 0x03 as u8]);
-    msg.msg_id = 0x01;
-    let data = msg.to_slice();
-    println!("{:02X?}", data);
-    let parsed = CommMsg::from_vec(data.as_slice());
-    println!("{}", msg);
-    println!("{}", parsed);
 }

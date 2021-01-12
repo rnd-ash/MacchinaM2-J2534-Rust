@@ -1,6 +1,6 @@
 [package]
 name = "m2_driver"
-version = "0.1.0"
+version = "0.5.0"
 authors = ["Ashcon Mohseninia <ashconm@outlook.com>"]
 edition = "2018"
 
