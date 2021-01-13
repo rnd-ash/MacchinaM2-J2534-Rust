@@ -5,7 +5,12 @@ path="release"
 echo "Macchina M2 Driver Installer"
 
 UNAME=$(uname)
-if [ `UNAME` = Darwin ]; then
+
+if [ ! -d ~/.passthru ]; then
+    mkdir -p ~/.passthru;
+fi
+
+if [ $UNAME = Darwin ]; then
     echo "Building the cargo"
     cargo build --release
     echo "Copying JSON to ~/.passthru/"

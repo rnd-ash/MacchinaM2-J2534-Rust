@@ -8,24 +8,29 @@ use byteorder::{ByteOrder, LittleEndian};
 /// # Params
 /// * output_ptr - Output pointer to store batter voltage into
 pub fn read_vbatt(output_ptr: *mut u32) -> PassthruError {
-    run_on_m2(|dev| {
+    match run_on_m2(|dev| {
         match dev.write_and_read_ptcmd(&mut CommMsg::new(MsgType::ReadBatt), 250) {
             M2Resp::Ok(args) => {
                 if args.len() < 4 { // This should stop a panic from randomly occurring when M2 is under load
                     log_error(format!("Error reading battery voltage - Args size was not correct"));
                     set_error_string("M2 responded with wrong args size".into());
-                    return Err(PassthruError::ERR_FAILED)
+                    Err(PassthruError::ERR_FAILED)
+                } else {
+                    Ok(LittleEndian::read_u32(&args))
                 }
-                let v = LittleEndian::read_u32(&args);
-                unsafe { *output_ptr = v };
-                Ok(PassthruError::STATUS_NOERROR)
             },
             M2Resp::Err{status, string} => {
                 log_error(format!("Error reading battery voltage (Status {:?}): {}", status, string));
-                Ok(status)
+                Err(status)
             }
         }
-    }).unwrap()
+    }) {
+        Ok(v) => {
+            unsafe { *output_ptr = v };
+            return PassthruError::STATUS_NOERROR
+        },
+        Err(x) => return x
+    }
 }
 
 #[allow(unused_variables)]
