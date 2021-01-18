@@ -6,7 +6,6 @@ use std::sync::mpsc::{channel, Sender, Receiver};
 use std::thread::{spawn, JoinHandle};
 use std::sync::RwLock;
 use lazy_static::lazy_static;
-use std::collections::hash_map::HashMap;
 use crate::{channels, logger::{self}};
 use J2534Common::{PassthruError, Parsable};
 use crate::passthru_drv::set_error_string;
@@ -14,6 +13,8 @@ use byteorder::{ByteOrder, WriteBytesExt, LittleEndian};
 
 #[cfg(windows)]
 use winreg::{RegKey, RegValue, enums::HKEY_LOCAL_MACHINE};
+
+const M2_CMD_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(1000); // Milliseconds
 
 lazy_static! {
     pub static ref M2: RwLock<Option<MacchinaM2>> = RwLock::new(None);
@@ -36,10 +37,11 @@ pub enum M2Resp {
 }
 
 pub struct MacchinaM2 {
-    rx_queue: Arc<RwLock<HashMap<u8, CommMsg>>>,
+    //rx_queue: Arc<RwLock<HashMap<u8, CommMsg>>>,
     handler: Option<JoinHandle<()>>,
     is_running: Arc<AtomicBool>,
     tx_send_queue: Sender<CommMsg>,
+    rx_recv_queue: Receiver<CommMsg>,
 }
 
 unsafe impl Send for MacchinaM2{}
@@ -107,11 +109,11 @@ impl MacchinaM2 {
             Err(e) => {return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Error opening port {}", e.to_string())));}
         };
 
-        // Create our Rx queue for incoming messages
-        let rx_queue = Arc::new(RwLock::new(HashMap::new()));
-        let rx_queue_t = rx_queue.clone();
-
+        // For data going from Caller -> M2
         let (send_tx, send_rx) : (Sender<CommMsg>, Receiver<CommMsg>) = channel();
+
+        // For data going from Caller <- M2
+        let (recv_tx, recv_rx) : (Sender<CommMsg>, Receiver<CommMsg>) = channel();
 
         // Set tell the thread to run by default
         let is_running = Arc::new(AtomicBool::new(true));
@@ -145,11 +147,14 @@ impl MacchinaM2 {
                     let msg = CommMsg::from_vec(&read_buffer[0..COMM_MSG_SIZE]);
                     read_buffer.rotate_right(COMM_MSG_SIZE);
                     match msg.msg_type {
-                        MsgType::LogMsg => { logger::log_m2_msg(String::from_utf8(msg.args).unwrap()) },
-                        MsgType::ReceiveChannelData => {
-                            channels::ChannelComm::receive_channel_data(&msg); 
-                        },
-                        _ => { rx_queue_t.write().unwrap().insert(msg.msg_id, msg); }
+                        MsgType::LogMsg => logger::log_m2_msg(String::from_utf8(msg.args).unwrap()),
+                        MsgType::ReceiveChannelData => channels::ChannelComm::receive_channel_data(&msg),
+                        _ => { 
+                            if let Err(e) = recv_tx.send(msg) {
+                                // Shouldn't happen, log it if it does
+                                log_error(format!("Could not push COMM_MSG to receive queue: {}", e))
+                            }
+                        }
                     }
                 } else {
                     std::thread::sleep(std::time::Duration::from_micros(10));
@@ -167,10 +172,10 @@ impl MacchinaM2 {
         }
 
         let m = MacchinaM2 {
-            rx_queue,
             handler,
             is_running,
-            tx_send_queue: send_tx
+            tx_send_queue: send_tx,
+            rx_recv_queue: recv_rx
         };
         Ok(m)
     }
@@ -233,29 +238,31 @@ impl MacchinaM2 {
     }
 
     /// Writes a message to the M2 unit, and expects a designated response back from the unit
-    pub fn write_and_read(&self, msg: &mut CommMsg, timeout_ms: u128) -> PTResult<CommMsg> {
+    pub fn write_and_read(&self, msg: &mut CommMsg, _timeout_ms: u128) -> PTResult<CommMsg> {
         let query_id = get_id(); // Set a unique ID, M2 is now forced to respond
         msg.msg_id = query_id;
+
         logger::log_debug(format!("Write data: {}", &msg));
         if let Err(e) = self.tx_send_queue.send(msg.clone()) {
             log_error(format!("Error writing comm msg to queue {}", e));
             return Err(PassthruError::ERR_FAILED);
         }
-        let start_time = std::time::Instant::now();
-        #[cfg(windows)]
-        let timeout = timeout_ms * 2;
-        #[cfg(unix)]
-        let timeout = timeout_ms;
-        while start_time.elapsed().as_millis() <= timeout {
-            if let Ok(mut lock) = self.rx_queue.write() {
-                if lock.contains_key(&query_id) {
-                    log_debug(format!("Command took {}us to execute", start_time.elapsed().as_micros()));
-                    return Ok(lock.remove(&query_id).unwrap());
-                }
+
+        let start_time = std::time::Instant::now(); // This is just for logging and serves no other purpose
+        
+        // Wait for our response message to appear within the Rx queue
+        while let Ok(msg) = self.rx_recv_queue.recv_timeout(M2_CMD_TIMEOUT) {
+            // This is our message, we can return it
+            if msg.msg_id == query_id {
+                // For debugging, just log how long the CMD took to do a round trip (Req -> M2 -> Resp)
+                log_debug(format!("Command took {}us to execute", start_time.elapsed().as_micros()));
+                return Ok(msg); // Return our message
+            } else {
+                // This should NEVER happen, but log it just in case
+                log_error(format!("Out of order command received!? Its ID: {}, My ID: {}, discarding", msg.msg_id, query_id));
             }
-            std::thread::sleep(std::time::Duration::from_micros(100));
         }
-        Err(PassthruError::ERR_TIMEOUT)
+        Err(PassthruError::ERR_TIMEOUT) // M2 timeout!
     }
 
     pub fn stop(&mut self) {
