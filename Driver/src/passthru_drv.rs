@@ -23,7 +23,7 @@ lazy_static! {
 /// by calling Passthru_get_last_error
 pub fn set_error_string(input: String) {
     let mut state = LAST_ERROR_STR.lock().unwrap();
-    std::mem::replace(&mut *state, input);
+    *state = input;
 }
 
 /// Our device ID that will be returned back to the application (0x1234)
@@ -63,8 +63,8 @@ pub fn passthru_read_version(
             }
         }
     });
-    if fw_version.is_err() {
-        return fw_version.unwrap_err();
+    if let Err(e) = fw_version {
+        return e;
     }
 
     if !copy_str_unsafe(fw_version_ptr, fw_version.unwrap().as_str()) {
@@ -108,7 +108,7 @@ pub fn passthru_open(device_id: *mut u32) -> PassthruError {
                     PassthruError::STATUS_NOERROR
                 } else {
                     // Something happened trying to write to the static reference of the M2
-                    set_error_string(format!("Failed to obtain write access to M2"));
+                    set_error_string("Failed to obtain write access to M2".into());
                     PassthruError::ERR_FAILED
                 }
             }
@@ -344,9 +344,9 @@ pub fn set_channel_filter(channel_id: u32, filter_type: FilterType, mask_ptr: *c
 
     fn log_filter(name: &str, msg: *const PASSTHRU_MSG) {
         let ptr = unsafe { msg.as_ref() };
-        ptr.map(|msg| {
-            logger::log_debug(format!("Filter specified. Type: {}, Data: {:?}", name, &msg.data[0..msg.data_size as usize]))
-        });
+        if let Some(msg) = ptr { 
+            logger::log_debug(format!("Filter specified. Type: {}, Data: {:?}", name, &msg.data[0..msg.data_size as usize])) 
+        }
     }
     log_filter("Mask filter", mask_ptr);
     log_filter("Pattern filter", pattern_ptr);
@@ -395,11 +395,11 @@ pub fn write_msgs(channel_id: u32, msg_ptr: *const PASSTHRU_MSG, num_msg_ptr: *m
     // Set num_msg_ptr to 0, we will increment it as reading to keep track how many messages have been written
     unsafe { *num_msg_ptr = 0 };
     let start_time = Instant::now();
-    for i in 0..max_msgs {
+    for i in 0..max_msgs as isize {
         if timeout_ms != 0 && start_time.elapsed().as_millis() > timeout_ms as u128 { // Timeout!
             return PassthruError::ERR_TIMEOUT
         }
-        let curr_msg = match unsafe { msg_ptr.offset(i as isize).as_ref() } {
+        let curr_msg = match unsafe { msg_ptr.offset(i).as_ref() } {
             Some(m) => m,
             None => return PassthruError::ERR_NULL_PARAMETER
         };
@@ -409,7 +409,7 @@ pub fn write_msgs(channel_id: u32, msg_ptr: *const PASSTHRU_MSG, num_msg_ptr: *m
         }
         unsafe { *num_msg_ptr += 1 };
     }
-    return PassthruError::STATUS_NOERROR
+    PassthruError::STATUS_NOERROR
 }
 
 pub fn read_msgs(channel_id: u32, msg_ptr: *mut PASSTHRU_MSG, num_msg_ptr: *mut u32, timeout_ms: u32) -> PassthruError {
@@ -420,7 +420,7 @@ pub fn read_msgs(channel_id: u32, msg_ptr: *mut PASSTHRU_MSG, num_msg_ptr: *mut 
     // Set num_msg_ptr to 0, we will increment it as reading to keep track how many messages have been read
     unsafe { *num_msg_ptr = 0 };
     let start_time = Instant::now();
-    for i in 0..max_msgs {
+    for i in 0..max_msgs as isize {
         if timeout_ms != 0 && start_time.elapsed().as_millis() > timeout_ms as u128 { // Timeout!
             return PassthruError::ERR_TIMEOUT
         }
@@ -429,7 +429,7 @@ pub fn read_msgs(channel_id: u32, msg_ptr: *mut PASSTHRU_MSG, num_msg_ptr: *mut 
                 match opt {
                     Some(msg) => {
                         //log_debug(format!("Channel {} sending data back to application! {}", channel_id, msg));
-                        unsafe { *msg_ptr.offset(i as isize) = msg; }
+                        unsafe { *msg_ptr.offset(i) = msg; }
                         unsafe { *num_msg_ptr += 1 };
                     }
                     None => {
@@ -442,5 +442,5 @@ pub fn read_msgs(channel_id: u32, msg_ptr: *mut PASSTHRU_MSG, num_msg_ptr: *mut 
             Err(e) => return e
         }
     }
-    return PassthruError::STATUS_NOERROR
+    PassthruError::STATUS_NOERROR
 }

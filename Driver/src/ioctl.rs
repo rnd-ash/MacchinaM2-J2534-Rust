@@ -1,5 +1,5 @@
 use J2534Common::{IoctlParam, PASSTHRU_MSG, Parsable, PassthruError, SBYTE_ARRAY, SConfigList};
-use crate::{channels, comm::*, logger::{log_info_str, log_warn, log_warn_str}, passthru_drv::set_error_string};
+use crate::{channels, comm::*, logger::{log_warn, log_warn_str}, passthru_drv::set_error_string};
 use crate::logger::{log_error};
 use byteorder::{ByteOrder, LittleEndian};
 
@@ -12,7 +12,7 @@ pub fn read_vbatt(output_ptr: *mut u32) -> PassthruError {
         match dev.write_and_read_ptcmd(&mut CommMsg::new(MsgType::ReadBatt), 250) {
             M2Resp::Ok(args) => {
                 if args.len() < 4 { // This should stop a panic from randomly occurring when M2 is under load
-                    log_error(format!("Error reading battery voltage - Args size was not correct"));
+                    log_error("Error reading battery voltage - Args size was not correct".into());
                     set_error_string("M2 responded with wrong args size".into());
                     Err(PassthruError::ERR_FAILED)
                 } else {
@@ -27,9 +27,9 @@ pub fn read_vbatt(output_ptr: *mut u32) -> PassthruError {
     }) {
         Ok(v) => {
             unsafe { *output_ptr = v };
-            return PassthruError::STATUS_NOERROR
+            PassthruError::STATUS_NOERROR
         },
-        Err(x) => return x
+        Err(x) => x
     }
 }
 
@@ -46,14 +46,12 @@ pub fn set_config(channel_id: u32, cfg_ptr: &SConfigList) -> PassthruError {
             Some(param) => {
                 if param.parameter >= 0x20 {
                     log_warn(format!("setconfig param name is reserved / tool specific?. Param: {:08X}, value: {:08X}", param.parameter, param.value));
-                } else {
-                    if let Some(pname) = IoctlParam::from_raw(param.parameter) {
-                        if let Err(e) = channels::ChannelComm::ioctl_set_cfg(channel_id, pname, param.value) {
-                            return e
-                        }
-                    } else {
-                        return PassthruError::ERR_NOT_SUPPORTED
+                } else if let Some(pname) = IoctlParam::from_raw(param.parameter) {
+                    if let Err(e) = channels::ChannelComm::ioctl_set_cfg(channel_id, pname, param.value) {
+                        return e
                     }
+                } else {
+                    return PassthruError::ERR_NOT_SUPPORTED
                 }
             }
         }
@@ -68,16 +66,14 @@ pub fn get_config(channel_id: u32, cfg_ptr: &SConfigList) -> PassthruError {
             Some(mut param) => {
                 if param.parameter >= 0x20 {
                     log_warn(format!("get config param name is reserved / tool specific?. Param: {:08X}, value: {:08X}", param.parameter, param.value));
-                } else {
-                    if let Some(pname) = IoctlParam::from_raw(param.parameter) {
-                        if let Ok(pvalue) = channels::ChannelComm::ioctl_get_cfg(channel_id, pname) {
-                            param.value = pvalue;
-                        } else {
-                            return PassthruError::ERR_FAILED
-                        }
+                } else if let Some(pname) = IoctlParam::from_raw(param.parameter) {
+                    if let Ok(pvalue) = channels::ChannelComm::ioctl_get_cfg(channel_id, pname) {
+                        param.value = pvalue;
                     } else {
-                        return PassthruError::ERR_NOT_SUPPORTED
+                        return PassthruError::ERR_FAILED
                     }
+                } else {
+                    return PassthruError::ERR_NOT_SUPPORTED
                 }
             }
         }

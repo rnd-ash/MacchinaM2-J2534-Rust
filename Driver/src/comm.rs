@@ -12,10 +12,6 @@ use J2534Common::{PassthruError, Parsable};
 use crate::passthru_drv::set_error_string;
 use byteorder::{ByteOrder, WriteBytesExt, LittleEndian};
 
-
-#[cfg(unix)]
-use serde_json;
-
 #[cfg(windows)]
 use winreg::{RegKey, RegValue, enums::HKEY_LOCAL_MACHINE};
 
@@ -27,7 +23,7 @@ lazy_static! {
 
 fn get_id() -> u8 {
     let v = (MSG_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst) & 0xFF) as u8;
-    return match v {
+    match v {
         0 => (MSG_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst) & 0xFF) as u8,
         x => x
     }
@@ -123,7 +119,7 @@ impl MacchinaM2 {
         // Since UNIX has a 4KB Page size, I want to store more data,
         // Use a 16KB Buffer
         let handler = Some(spawn(move || {
-            let mut read_buffer: [u8; COMM_MSG_SIZE * 10] = [0x00; COMM_MSG_SIZE * 10];
+            let mut read_buffer: [u8; COMM_MSG_SIZE * 4] = [0x00; COMM_MSG_SIZE * 4];
             logger::log_debug_str("M2 receiver thread starting!");
             let msg = CommMsg::new_with_args(MsgType::StatusMsg, &[0x01]);
             if port.write_all(&msg.to_slice()).is_err() {
@@ -141,23 +137,21 @@ impl MacchinaM2 {
                 }
                 let incoming = port.read(&mut read_buffer[read_count..]).unwrap_or(0);
                 read_count += incoming;
-                let activity = read_count >= COMM_MSG_SIZE;
-                //if (read_count > 0) {
-                //    println!("READ {}", read_count);
+                //if read_count > 0 {
+                //    log_debug(format!("READ {} {} in buffer", incoming, read_count));
                 //}
-                while read_count >= COMM_MSG_SIZE {
+                if read_count >= COMM_MSG_SIZE {
                     read_count -= COMM_MSG_SIZE;
                     let msg = CommMsg::from_vec(&read_buffer[0..COMM_MSG_SIZE]);
                     read_buffer.rotate_right(COMM_MSG_SIZE);
                     match msg.msg_type {
-                        MsgType::LogMsg => { logger::log_m2_msg(String::from_utf8(Vec::from(msg.args)).unwrap()) },
+                        MsgType::LogMsg => { logger::log_m2_msg(String::from_utf8(msg.args).unwrap()) },
                         MsgType::ReceiveChannelData => {
                             channels::ChannelComm::receive_channel_data(&msg); 
                         },
                         _ => { rx_queue_t.write().unwrap().insert(msg.msg_id, msg); }
                     }
-                }
-                if !activity {
+                } else {
                     std::thread::sleep(std::time::Duration::from_micros(10));
                 }
             }
@@ -168,7 +162,7 @@ impl MacchinaM2 {
             logger::log_debug_str("M2 receiver thread exiting");
         }));
         std::thread::sleep(std::time::Duration::from_millis(50));
-        if is_running.load(Ordering::Relaxed) == false {
+        if !is_running.load(Ordering::Relaxed) {
             return Err(std::io::Error::new(std::io::ErrorKind::ConnectionAborted, "Error initializing M2"));
         }
 
@@ -178,7 +172,7 @@ impl MacchinaM2 {
             is_running,
             tx_send_queue: send_tx
         };
-        return Ok(m);
+        Ok(m)
     }
 
     /// Writes a CommMsg to the M2, and does not retrieve a response
@@ -248,7 +242,11 @@ impl MacchinaM2 {
             return Err(PassthruError::ERR_FAILED);
         }
         let start_time = std::time::Instant::now();
-        while start_time.elapsed().as_millis() <= timeout_ms {
+        #[cfg(windows)]
+        let timeout = timeout_ms * 2;
+        #[cfg(unix)]
+        let timeout = timeout_ms;
+        while start_time.elapsed().as_millis() <= timeout {
             if let Ok(mut lock) = self.rx_queue.write() {
                 if lock.contains_key(&query_id) {
                     log_debug(format!("Command took {}us to execute", start_time.elapsed().as_micros()));
@@ -257,7 +255,7 @@ impl MacchinaM2 {
             }
             std::thread::sleep(std::time::Duration::from_micros(100));
         }
-        return Err(PassthruError::ERR_TIMEOUT);
+        Err(PassthruError::ERR_TIMEOUT)
     }
 
     pub fn stop(&mut self) {
@@ -379,6 +377,6 @@ impl CommMsg {
         params.push(self.msg_id); // 2
         params.push(self.msg_type as u8); // 3
         params.extend_from_slice(&self.args);
-        return params;
+        params
     }
 }

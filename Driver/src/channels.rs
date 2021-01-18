@@ -29,7 +29,7 @@ enum ChannelID {
 
 
 impl ChannelID {
-    fn get_channel<'a>(&self) -> &'static RwLock<Option<Channel>> {
+    fn get_channel(&self) -> &'static RwLock<Option<Channel>> {
         match self {
             ChannelID::Can => &CAN_CHANNEL,
             ChannelID::Kline => &KLINE_CHANNEL,
@@ -72,11 +72,11 @@ impl ChannelComm {
                     return Err(PassthruError::ERR_CHANNEL_IN_USE)
                 }
                 Channel::new(protocol_id as u32, protocol, baud_rate, flags) // If ID, create a new channel
-                    .and_then(|chan| {
+                    .map(|chan| {
                         // If channel creation OK, set it in the channel list
                         let idx = chan.id;
                         *channel = Some(chan);
-                        Ok(idx as u32) // Return the ID
+                        idx as u32 // Return the ID
                     })
             }
             Err(e) => {
@@ -422,12 +422,14 @@ impl Channel {
 
     pub fn on_receive_data(&mut self, rx_status: u32, data: &[u8]) {
         if self.rx_data.len() < MAX_QUEUE_MSGS {
-            let mut msg = PASSTHRU_MSG::default();
-            msg.data_size = data.len() as u32;
-            msg.rx_status = rx_status;
-            msg.protocol_id = self.protocol as u32;
+            let mut msg = PASSTHRU_MSG {
+                data_size: data.len() as u32,
+                rx_status,
+                protocol_id: self.protocol as u32,
+                timestamp: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros() as u32,
+                ..Default::default()
+            };
             msg.data[..data.len()].copy_from_slice(data);
-            msg.timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros() as u32;
             //log_debug(format!("Channel {} buffering message. RxStatus: {:08X}, data: {:02X?}", self.id, rx_status, &data));
             self.rx_data.push_back(msg);
         } else {

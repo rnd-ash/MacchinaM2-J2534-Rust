@@ -1,6 +1,5 @@
 use std::{sync::RwLock};
 use std::fs::File;
-use std::io;
 use std::io::prelude::*;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
