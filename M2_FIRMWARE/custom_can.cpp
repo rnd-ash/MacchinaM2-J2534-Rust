@@ -48,7 +48,6 @@ void CustomCan::enableCanBus(int baud) {
     
     // Block all traffic
     for (int i = 0; i < 7; i++) {
-        
         Can0.setRXFilter(i, 0xFFFF, 0x0000, false);
         // In case rxQueue is still there, delete it
         __delete_check_rx_ring(i);

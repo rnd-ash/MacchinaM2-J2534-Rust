@@ -1,12 +1,12 @@
 use logger::{log_debug, log_error, log_warn};
 use serialport::*;
-use std::{io::{Write, Read, Error, ErrorKind}};
-use std::sync::{Arc, atomic::AtomicU32, atomic::AtomicBool, atomic::Ordering};
+use std::{collections::VecDeque, io::{BufReader, Error, ErrorKind, Read, Write}, sync::{Mutex}};
+use std::sync::{Arc, atomic::AtomicBool, atomic::Ordering};
 use std::sync::mpsc::{channel, Sender, Receiver};
 use std::thread::{spawn, JoinHandle};
 use std::sync::RwLock;
 use lazy_static::lazy_static;
-use crate::{channels, logger::{self}};
+use crate::{channels, logger::{self, log_debug_str}};
 use J2534Common::{PassthruError, Parsable};
 use crate::passthru_drv::set_error_string;
 use byteorder::{ByteOrder, WriteBytesExt, LittleEndian};
@@ -14,20 +14,21 @@ use byteorder::{ByteOrder, WriteBytesExt, LittleEndian};
 #[cfg(windows)]
 use winreg::{RegKey, RegValue, enums::HKEY_LOCAL_MACHINE};
 
-const M2_CMD_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(1000); // Milliseconds
+const M2_CMD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5); // Milliseconds
 
 lazy_static! {
     pub static ref M2: RwLock<Option<MacchinaM2>> = RwLock::new(None);
-    static ref MSG_ID: Arc<AtomicU32> = Arc::new(AtomicU32::new(0));
+    static ref MSG_ID: Arc<Mutex<u8>> = Arc::new(Mutex::new(1));
 }
 
 
 fn get_id() -> u8 {
-    let v = (MSG_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst) & 0xFF) as u8;
-    match v {
-        0 => (MSG_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst) & 0xFF) as u8,
-        x => x
+    let mut x = MSG_ID.lock().unwrap();
+    *x += 1;
+    if *x > 100 {
+        *x = 1
     }
+    *x
 }
 
 #[derive(Debug, Clone)]
@@ -41,7 +42,7 @@ pub struct MacchinaM2 {
     handler: Option<JoinHandle<()>>,
     is_running: Arc<AtomicBool>,
     tx_send_queue: Sender<CommMsg>,
-    rx_recv_queue: Receiver<CommMsg>,
+    rx_recv_queue: Vec<Receiver<CommMsg>>
 }
 
 unsafe impl Send for MacchinaM2{}
@@ -85,11 +86,13 @@ pub fn run_on_m2<T, F: FnOnce(&MacchinaM2) -> PTResult<T>>(op: F) -> PTResult<T>
             }
         },
         Err(x) => {
-            set_error_string(format!("RWLockGuard on M2 failed to be aquired {}", x));
+            set_error_string(format!("RWLockGuard on M2 failed to be acquired {}", x));
             Err(PassthruError::ERR_FAILED)
         }
     }
 }
+
+const MAX_BUFFER_SIZE: usize = 16;
 
 impl MacchinaM2 {
     pub fn open_connection() -> Result<Self> {
@@ -113,7 +116,14 @@ impl MacchinaM2 {
         let (send_tx, send_rx) : (Sender<CommMsg>, Receiver<CommMsg>) = channel();
 
         // For data going from Caller <- M2
-        let (recv_tx, recv_rx) : (Sender<CommMsg>, Receiver<CommMsg>) = channel();
+        let mut senders: Vec<Sender<CommMsg>> = Vec::new();
+        let mut receivers: Vec<Receiver<CommMsg>> = Vec::new();
+
+        for _ in 0..100 {
+            let (recv_tx, recv_rx) : (Sender<CommMsg>, Receiver<CommMsg>) = channel();
+            senders.push(recv_tx);
+            receivers.push(recv_rx);
+        }
 
         // Set tell the thread to run by default
         let is_running = Arc::new(AtomicBool::new(true));
@@ -121,7 +131,6 @@ impl MacchinaM2 {
         // Since UNIX has a 4KB Page size, I want to store more data,
         // Use a 16KB Buffer
         let handler = Some(spawn(move || {
-            let mut read_buffer: [u8; COMM_MSG_SIZE * 4] = [0x00; COMM_MSG_SIZE * 4];
             logger::log_debug_str("M2 receiver thread starting!");
             let msg = CommMsg::new_with_args(MsgType::StatusMsg, &[0x01]);
             if port.write_all(&msg.to_slice()).is_err() {
@@ -129,7 +138,10 @@ impl MacchinaM2 {
                 is_running_t.store(false, Ordering::Relaxed);
                 return;
             }
+
             let mut read_count = 0;
+            let mut read_buffer: [u8; COMM_MSG_SIZE * MAX_BUFFER_SIZE] = [0x00; COMM_MSG_SIZE * MAX_BUFFER_SIZE];
+            let mut activity: bool;
             while is_running_t.load(Ordering::Relaxed) {
                 // Any messages to write?
                 if let Ok(m) = send_rx.try_recv() {
@@ -137,26 +149,34 @@ impl MacchinaM2 {
                         log_warn(format!("Could not write TxPayload to M2 {}", e));
                     }
                 }
+
+                activity = false;
                 let incoming = port.read(&mut read_buffer[read_count..]).unwrap_or(0);
                 read_count += incoming;
                 //if read_count > 0 {
                 //    log_debug(format!("READ {} {} in buffer", incoming, read_count));
                 //}
-                if read_count >= COMM_MSG_SIZE {
-                    read_count -= COMM_MSG_SIZE;
+                while read_count >= COMM_MSG_SIZE {
+                    activity = true;
                     let msg = CommMsg::from_vec(&read_buffer[0..COMM_MSG_SIZE]);
-                    read_buffer.rotate_right(COMM_MSG_SIZE);
+                    unsafe {
+                        std::ptr::copy(&read_buffer[COMM_MSG_SIZE], &mut read_buffer[0], COMM_MSG_SIZE*(MAX_BUFFER_SIZE-1));
+                    }
+                    read_count -= COMM_MSG_SIZE;
                     match msg.msg_type {
                         MsgType::LogMsg => logger::log_m2_msg(String::from_utf8(msg.args).unwrap()),
                         MsgType::ReceiveChannelData => channels::ChannelComm::receive_channel_data(&msg),
-                        _ => { 
-                            if let Err(e) = recv_tx.send(msg) {
+                        _ => {
+                            if msg.msg_id > 100 {
+                                log_error(format!("WTF message has ID > 100!?: {}", msg))
+                            } else if let Err(e) = senders[(msg.msg_id-1) as usize].send(msg) {
                                 // Shouldn't happen, log it if it does
                                 log_error(format!("Could not push COMM_MSG to receive queue: {}", e))
                             }
                         }
                     }
-                } else {
+                }
+                if !activity {
                     std::thread::sleep(std::time::Duration::from_micros(10));
                 }
             }
@@ -175,7 +195,7 @@ impl MacchinaM2 {
             handler,
             is_running,
             tx_send_queue: send_tx,
-            rx_recv_queue: recv_rx
+            rx_recv_queue: receivers
         };
         Ok(m)
     }
@@ -251,16 +271,10 @@ impl MacchinaM2 {
         let start_time = std::time::Instant::now(); // This is just for logging and serves no other purpose
         
         // Wait for our response message to appear within the Rx queue
-        while let Ok(msg) = self.rx_recv_queue.recv_timeout(M2_CMD_TIMEOUT) {
-            // This is our message, we can return it
-            if msg.msg_id == query_id {
-                // For debugging, just log how long the CMD took to do a round trip (Req -> M2 -> Resp)
-                log_debug(format!("Command took {}us to execute", start_time.elapsed().as_micros()));
-                return Ok(msg); // Return our message
-            } else {
-                // This should NEVER happen, but log it just in case
-                log_error(format!("Out of order command received!? Its ID: {}, My ID: {}, discarding", msg.msg_id, query_id));
-            }
+        if let Ok(msg) = self.rx_recv_queue[query_id as usize -1].recv_timeout(M2_CMD_TIMEOUT) {
+            // For debugging, just log how long the CMD took to do a round trip (Req -> M2 -> Resp)
+            log_debug(format!("Command took {}us to execute", start_time.elapsed().as_micros()));
+            return Ok(msg); // Return our message
         }
         Err(PassthruError::ERR_TIMEOUT) // M2 timeout!
     }
