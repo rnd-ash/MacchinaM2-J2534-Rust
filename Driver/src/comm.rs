@@ -107,6 +107,7 @@ impl MacchinaM2 {
         let mut port = match serialport::new(port, 500000).open() {
             Ok(mut p) => {
                 p.set_flow_control(FlowControl::Hardware).expect("Fatal. Could not setup hardware flow control");
+                p.set_timeout(std::time::Duration::from_millis(0));
                 p
             },
             Err(e) => {return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Error opening port {}", e.to_string())));}
@@ -128,8 +129,22 @@ impl MacchinaM2 {
         // Set tell the thread to run by default
         let is_running = Arc::new(AtomicBool::new(true));
         let is_running_t = is_running.clone();
+        let is_running_tw = is_running.clone();
         // Since UNIX has a 4KB Page size, I want to store more data,
         // Use a 16KB Buffer
+        let mut port_write = port.try_clone().unwrap();
+
+        let write_handler = Some(spawn(move||{
+            while is_running_tw.load(Ordering::Relaxed) {
+                // Any messages to write?
+                if let Ok(m) = send_rx.recv() {
+                    if let Err(e) = port_write.write_all(&m.to_slice()) {
+                        log_warn(format!("Could not write TxPayload to M2 {}", e));
+                    }
+                }
+            }
+        }));
+
         let handler = Some(spawn(move || {
             logger::log_debug_str("M2 receiver thread starting!");
             let msg = CommMsg::new_with_args(MsgType::StatusMsg, &[0x01]);
@@ -143,13 +158,6 @@ impl MacchinaM2 {
             let mut read_buffer: [u8; COMM_MSG_SIZE * MAX_BUFFER_SIZE] = [0x00; COMM_MSG_SIZE * MAX_BUFFER_SIZE];
             let mut activity: bool;
             while is_running_t.load(Ordering::Relaxed) {
-                // Any messages to write?
-                if let Ok(m) = send_rx.try_recv() {
-                    if let Err(e) = port.write_all(&m.to_slice()) {
-                        log_warn(format!("Could not write TxPayload to M2 {}", e));
-                    }
-                }
-
                 activity = false;
                 let incoming = port.read(&mut read_buffer[read_count..]).unwrap_or(0);
                 read_count += incoming;
@@ -163,15 +171,18 @@ impl MacchinaM2 {
                         std::ptr::copy(&read_buffer[COMM_MSG_SIZE], &mut read_buffer[0], COMM_MSG_SIZE*(MAX_BUFFER_SIZE-1));
                     }
                     read_count -= COMM_MSG_SIZE;
+
                     match msg.msg_type {
                         MsgType::LogMsg => logger::log_m2_msg(String::from_utf8(msg.args).unwrap()),
                         MsgType::ReceiveChannelData => channels::ChannelComm::receive_channel_data(&msg),
                         _ => {
-                            if msg.msg_id > 100 {
-                                log_error(format!("WTF message has ID > 100!?: {}", msg))
-                            } else if let Err(e) = senders[(msg.msg_id-1) as usize].send(msg) {
-                                // Shouldn't happen, log it if it does
-                                log_error(format!("Could not push COMM_MSG to receive queue: {}", e))
+                            if msg.msg_id != 0 && msg.msg_id < 100 {
+                                if let Err(e) = senders[(msg.msg_id-1) as usize].send(msg) {
+                                    // Shouldn't happen, log it if it does
+                                    log_error(format!("Could not push COMM_MSG to receive queue: {}", e))
+                                }
+                            } else {
+                                log_error(format!("Invalid message ID {} - Type: {:?}", msg.msg_id, msg.msg_type))
                             }
                         }
                     }
