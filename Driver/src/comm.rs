@@ -6,7 +6,7 @@ use std::sync::mpsc::{channel, Sender, Receiver};
 use std::thread::{spawn, JoinHandle};
 use std::sync::RwLock;
 use lazy_static::lazy_static;
-use crate::{channels, logger::{self, log_debug_str}};
+use crate::{channels, logger::{self, log_debug_str, log_m2_msg}};
 use J2534Common::{PassthruError, Parsable};
 use crate::passthru_drv::set_error_string;
 use byteorder::{ByteOrder, WriteBytesExt, LittleEndian};
@@ -25,7 +25,7 @@ lazy_static! {
 fn get_id() -> u8 {
     let mut x = MSG_ID.lock().unwrap();
     *x += 1;
-    if *x > 100 {
+    if *x >= 100 {
         *x = 1
     }
     *x
@@ -108,6 +108,7 @@ impl MacchinaM2 {
             Ok(mut p) => {
                 p.set_flow_control(FlowControl::Hardware).expect("Fatal. Could not setup hardware flow control");
                 p.set_timeout(std::time::Duration::from_millis(0));
+                p.clear(ClearBuffer::All);
                 p
             },
             Err(e) => {return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Error opening port {}", e.to_string())));}
@@ -144,6 +145,8 @@ impl MacchinaM2 {
                 }
             }
         }));
+        
+
 
         let handler = Some(spawn(move || {
             logger::log_debug_str("M2 receiver thread starting!");
@@ -157,12 +160,15 @@ impl MacchinaM2 {
             let mut read_count = 0;
             let mut read_buffer: [u8; COMM_MSG_SIZE * MAX_BUFFER_SIZE] = [0x00; COMM_MSG_SIZE * MAX_BUFFER_SIZE];
             let mut activity: bool;
+            let mut loop_count: u128 = 0;
             while is_running_t.load(Ordering::Relaxed) {
                 activity = false;
+                //loop_count+=1;
                 let incoming = port.read(&mut read_buffer[read_count..]).unwrap_or(0);
                 read_count += incoming;
                 //if read_count > 0 {
-                //    log_debug(format!("READ {} {} in buffer", incoming, read_count));
+                //    log_debug(format!("READ {} {} in buffer - Looped {} times", incoming, read_count, loop_count));
+                //    loop_count = 0;
                 //}
                 while read_count >= COMM_MSG_SIZE {
                     activity = true;
@@ -171,9 +177,8 @@ impl MacchinaM2 {
                         std::ptr::copy(&read_buffer[COMM_MSG_SIZE], &mut read_buffer[0], COMM_MSG_SIZE*(MAX_BUFFER_SIZE-1));
                     }
                     read_count -= COMM_MSG_SIZE;
-
                     match msg.msg_type {
-                        MsgType::LogMsg => logger::log_m2_msg(String::from_utf8(msg.args).unwrap()),
+                        MsgType::LogMsg => log_m2_msg(String::from_utf8(msg.args).unwrap()),
                         MsgType::ReceiveChannelData => channels::ChannelComm::receive_channel_data(&msg),
                         _ => {
                             if msg.msg_id != 0 && msg.msg_id < 100 {
