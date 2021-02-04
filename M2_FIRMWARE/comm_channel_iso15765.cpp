@@ -116,7 +116,7 @@ void ISO15765Channel::update() {
             tx_multi_frame();
             next_send_time = millis() + this->sep_time;
             if (this->tx_frames_sent >= this->block_size_tx) {
-                clear_to_send = false; // Await flow control again
+                this->clear_to_send = false; // Await flow control again
             }
         }
     }
@@ -185,6 +185,7 @@ void ISO15765Channel::rx_multi_frame(CAN_FRAME *read, int id) {
     memcpy(&rxPayload.payload[rxPayload.payloadPos] ,&read->data.bytes[1], max_copy);
 
     rxPayload.payloadPos += max_copy;
+    this->rx_frame_count++;
     if (rxPayload.payloadPos >= rxPayload.payloadSize) { // Got all our data!
         // Send the payload to the PC
         PCCOMM::send_rx_data(this->channel_id, 0x0000, rxPayload.payload, rxPayload.payloadSize);
@@ -193,7 +194,8 @@ void ISO15765Channel::rx_multi_frame(CAN_FRAME *read, int id) {
         this->isReceiving = false;
         return;
     }
-    if (read->data.bytes[0] == 0x29) { // ECU hit block limit. Send flow control again!
+    if (this->rx_frame_count >= 8) { // ECU hit block limit. Send flow control again!
+        this->rx_frame_count = 0;
         // Just send flow control back to ECU
         f.id = this->flowcontrol_ids[id];
         // Now create the flow control frame to send back to the application
@@ -249,6 +251,7 @@ void ISO15765Channel::send_ff_indication(CAN_FRAME *read, int id) {
     buf2[2] = request_id >> 8;
     buf2[3] = request_id >> 0;
     PCCOMM::send_rx_data(this->channel_id, ISO15765_FIRST_FRAME, buf2, 4);
+    this->rx_frame_count = 0;
     delete[] buf2;
 }
 

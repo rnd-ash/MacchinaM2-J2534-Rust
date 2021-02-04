@@ -84,7 +84,7 @@ class ISO15765Channel : public Channel {
         isoPayload txPayload = {0x00}; // For sending
         uint8_t block_size;
         uint8_t sep_time;
-
+        uint8_t rx_frame_count;
         uint8_t block_size_tx = 0;
         uint8_t sep_time_tx = 0;
         uint8_t tx_frames_sent = 0;
