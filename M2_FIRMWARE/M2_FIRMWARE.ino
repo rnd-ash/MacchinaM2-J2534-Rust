@@ -54,11 +54,12 @@ void send_v_batt() {
 
 bool isConnected = false;
 void set_status_led(uint8_t status) {
+    // Clear no matter what!
+    reset_all_channels();
+    PCCOMM::reset();
   if (status == 0x00) {
     digitalWrite(DS6, HIGH); // Green Off
     digitalWrite(DS2, LOW); // Red On
-    reset_all_channels();
-    PCCOMM::reset();
     isConnected = false;
     // TODO Reset M2 to default state when we disconnect
   } else {

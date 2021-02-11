@@ -1,9 +1,9 @@
 use logger::{log_debug, log_error, log_warn};
 use serialport::*;
-use std::{collections::VecDeque, io::{BufReader, Error, ErrorKind, Read, Write}, sync::{Mutex}};
+use std::{io::{Error, ErrorKind, Read, Write}, sync::{Mutex}};
 use std::sync::{Arc, atomic::AtomicBool, atomic::Ordering};
 use std::sync::mpsc::{channel, Sender, Receiver};
-use std::thread::{spawn, JoinHandle};
+use std::thread::spawn;
 use std::sync::RwLock;
 use lazy_static::lazy_static;
 use crate::{channels, logger::{self, log_debug_str, log_m2_msg}};
@@ -38,8 +38,6 @@ pub enum M2Resp {
 }
 
 pub struct MacchinaM2 {
-    //rx_queue: Arc<RwLock<HashMap<u8, CommMsg>>>,
-    handler: Option<JoinHandle<()>>,
     is_running: Arc<AtomicBool>,
     tx_send_queue: Sender<CommMsg>,
     rx_recv_queue: Vec<Receiver<CommMsg>>
@@ -107,8 +105,8 @@ impl MacchinaM2 {
         let mut port = match serialport::new(port, 500000).open() {
             Ok(mut p) => {
                 p.set_flow_control(FlowControl::Hardware).expect("Fatal. Could not setup hardware flow control");
-                p.set_timeout(std::time::Duration::from_millis(0));
-                p.clear(ClearBuffer::All);
+                p.set_timeout(std::time::Duration::from_millis(0)).expect("Fatal. Could not set Serial timeout");
+                p.clear(ClearBuffer::All).expect("Fatal. Could not clear Serial buffers");
                 p
             },
             Err(e) => {return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Error opening port {}", e.to_string())));}
@@ -135,7 +133,7 @@ impl MacchinaM2 {
         // Use a 16KB Buffer
         let mut port_write = port.try_clone().unwrap();
 
-        let write_handler = Some(spawn(move||{
+        spawn(move||{
             while is_running_tw.load(Ordering::Relaxed) {
                 // Any messages to write?
                 if let Ok(m) = send_rx.recv() {
@@ -144,11 +142,11 @@ impl MacchinaM2 {
                     }
                 }
             }
-        }));
+        });
         
 
 
-        let handler = Some(spawn(move || {
+        spawn(move || {
             logger::log_debug_str("M2 receiver thread starting!");
             let msg = CommMsg::new_with_args(MsgType::StatusMsg, &[0x01]);
             if port.write_all(&msg.to_slice()).is_err() {
@@ -160,7 +158,7 @@ impl MacchinaM2 {
             let mut read_count = 0;
             let mut read_buffer: [u8; COMM_MSG_SIZE * MAX_BUFFER_SIZE] = [0x00; COMM_MSG_SIZE * MAX_BUFFER_SIZE];
             let mut activity: bool;
-            let mut loop_count: u128 = 0;
+            let mut _loop_count: u128 = 0;
             while is_running_t.load(Ordering::Relaxed) {
                 activity = false;
                 //loop_count+=1;
@@ -201,14 +199,13 @@ impl MacchinaM2 {
                 log_warn(format!("Could not write exit message to M2 {}", e));
             }
             logger::log_debug_str("M2 receiver thread exiting");
-        }));
+        });
         std::thread::sleep(std::time::Duration::from_millis(50));
         if !is_running.load(Ordering::Relaxed) {
             return Err(std::io::Error::new(std::io::ErrorKind::ConnectionAborted, "Error initializing M2"));
         }
 
         let m = MacchinaM2 {
-            handler,
             is_running,
             tx_send_queue: send_tx,
             rx_recv_queue: receivers
@@ -297,7 +294,6 @@ impl MacchinaM2 {
 
     pub fn stop(&mut self) {
         self.is_running.store(false, Ordering::Relaxed);
-        self.handler.take().map(JoinHandle::join);
     }
 }
 
