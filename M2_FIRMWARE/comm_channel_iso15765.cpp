@@ -225,8 +225,12 @@ void ISO15765Channel::send_ff_indication(CAN_FRAME *read, int id) {
         return;
     }
     // Now allocate memory for the buffer!
-    this->rxPayload.payload = new char[read->data.bytes[1] + 4]; // +4 for CAN ID
-    this->rxPayload.payloadSize = read->data.bytes[1] + 4;
+    int size = ((read->data.bytes[0] & 0x0F) << 8) | (read->data.bytes[1] + 4);
+    char buf[40];
+    sprintf(buf, "Allocating %d bytes", size);
+    PCCOMM::log_message(buf);
+    this->rxPayload.payload = new char[size]; // +4 for CAN ID
+    this->rxPayload.payloadSize = size;
     this->rxPayload.payloadPos = 10; // Always for first frame
     memcpy(&rxPayload.payload[4] ,&read->data.bytes[2], 6); // Copy the first 6 bytes (Start at 4 for CAN ID)
     this->rxPayload.payload[0] = request_id >> 24;
@@ -293,8 +297,8 @@ void ISO15765Channel::sendMsg(uint32_t tx_flags, char* data, int data_size, bool
         f.length = 8;
         f.id = data[0] << 24 | data[1] << 16 | data[2] << 8 | data[3];
         f.rtr = false;
-        f.data.bytes[0] = 0x10;
-        f.data.bytes[1] = data_size - 4; // First byte is the length of the ISO message
+        f.data.bytes[0] = 0x10 | ((data_size - 4) & 0x0F00) >> 8;
+        f.data.bytes[1] = (data_size - 4) & 0xFF; // First byte is the length of the ISO message
         memcpy(&f.data.bytes[2], &data[4], 6); // Copy data to bytes [1] and beyond
         this->txPayload = isoPayload {
             // Just copy the data, ignore the CID
