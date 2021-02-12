@@ -1,3 +1,4 @@
+use channels::ChannelComm;
 use logger::{log_debug, log_error, log_warn};
 use serialport::*;
 use std::{io::{Error, ErrorKind, Read, Write}, sync::{Mutex}};
@@ -6,7 +7,7 @@ use std::sync::mpsc::{channel, Sender, Receiver};
 use std::thread::spawn;
 use std::sync::RwLock;
 use lazy_static::lazy_static;
-use crate::{channels, logger::{self, log_debug_str, log_m2_msg}};
+use crate::{channels, logger::{self, log_debug_str, log_error_str, log_m2_msg}};
 use J2534Common::{PassthruError, Parsable};
 use crate::passthru_drv::set_error_string;
 use byteorder::{ByteOrder, WriteBytesExt, LittleEndian};
@@ -14,13 +15,12 @@ use byteorder::{ByteOrder, WriteBytesExt, LittleEndian};
 #[cfg(windows)]
 use winreg::{RegKey, RegValue, enums::HKEY_LOCAL_MACHINE};
 
-const M2_CMD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5); // Milliseconds
+const M2_CMD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2); // Seconds
 
 lazy_static! {
     pub static ref M2: RwLock<Option<MacchinaM2>> = RwLock::new(None);
     static ref MSG_ID: Arc<Mutex<u8>> = Arc::new(Mutex::new(1));
 }
-
 
 fn get_id() -> u8 {
     let mut x = MSG_ID.lock().unwrap();
@@ -125,15 +125,21 @@ impl MacchinaM2 {
             receivers.push(recv_rx);
         }
 
+        let (chan_tx, chan_rx) : (Sender<CommMsg>, Receiver<CommMsg>) = channel();
+
         // Set tell the thread to run by default
         let is_running = Arc::new(AtomicBool::new(true));
         let is_running_t = is_running.clone();
         let is_running_tw = is_running.clone();
+        let is_running_ts = is_running.clone();
         // Since UNIX has a 4KB Page size, I want to store more data,
         // Use a 16KB Buffer
         let mut port_write = port.try_clone().unwrap();
 
+        // This thread is responsible for writing data to the M2's
+        // serial port.
         spawn(move||{
+            logger::log_debug_str("M2 serial writer thread starting!");
             while is_running_tw.load(Ordering::Relaxed) {
                 // Any messages to write?
                 if let Ok(m) = send_rx.recv() {
@@ -142,12 +148,34 @@ impl MacchinaM2 {
                     }
                 }
             }
+            logger::log_debug_str("M2 serial writer thread exiting");
         });
         
-
-
+        // This thread is responsible for pushing data to channel queues,
+        // This prevents the serial reader thread from being blocked,
+        // which could result in data being lost!
         spawn(move || {
-            logger::log_debug_str("M2 receiver thread starting!");
+            logger::log_debug_str("M2 channel sender thread starting!");
+            let mut activity;
+            while is_running_ts.load(Ordering::Relaxed) {
+                activity = false;
+                if let Ok(msg) = chan_rx.try_recv() {
+                    activity = true;
+                    ChannelComm::receive_channel_data(&msg)
+                }
+                if !activity {
+                    std::thread::sleep(std::time::Duration::from_micros(10));
+                }
+            }
+            logger::log_debug_str("M2 channel sender thread exiting!");
+        });
+
+        // This thread is responsible for reading serial data from the M2
+        // Since each packet is 4096 bytes, its imperative that this
+        // thread does NOT block, or else data will be lost by the OS's
+        // serial buffer.
+        spawn(move || {
+            logger::log_debug_str("M2 serial reader thread starting!");
             let msg = CommMsg::new_with_args(MsgType::StatusMsg, &[0x01]);
             if port.write_all(&msg.to_slice()).is_err() {
                 logger::log_error_str("Timeout writing init struct!");
@@ -177,7 +205,11 @@ impl MacchinaM2 {
                     read_count -= COMM_MSG_SIZE;
                     match msg.msg_type {
                         MsgType::LogMsg => log_m2_msg(String::from_utf8(msg.args).unwrap()),
-                        MsgType::ReceiveChannelData => channels::ChannelComm::receive_channel_data(&msg),
+                        MsgType::ReceiveChannelData => {
+                            if chan_tx.send(msg).is_err() {
+                                log_error_str("Could not write data to channel thread receiver!");
+                            }
+                        },
                         _ => {
                             if msg.msg_id != 0 && msg.msg_id < 100 {
                                 if let Err(e) = senders[(msg.msg_id-1) as usize].send(msg) {
@@ -198,7 +230,7 @@ impl MacchinaM2 {
             if let Err(e) = port.write_all(&msg.to_slice()) {
                 log_warn(format!("Could not write exit message to M2 {}", e));
             }
-            logger::log_debug_str("M2 receiver thread exiting");
+            logger::log_debug_str("M2 serial reader thread exiting");
         });
         std::thread::sleep(std::time::Duration::from_millis(50));
         if !is_running.load(Ordering::Relaxed) {
