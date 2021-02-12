@@ -226,9 +226,9 @@ void ISO15765Channel::send_ff_indication(CAN_FRAME *read, int id) {
     }
     // Now allocate memory for the buffer!
     int size = ((read->data.bytes[0] & 0x0F) << 8) | (read->data.bytes[1] + 4);
-    char buf[40];
-    sprintf(buf, "Allocating %d bytes", size);
-    PCCOMM::log_message(buf);
+    //char buf[40];
+    //sprintf(buf, "Allocating %d bytes", size);
+    //PCCOMM::log_message(buf);
     this->rxPayload.payload = new char[size]; // +4 for CAN ID
     this->rxPayload.payloadSize = size;
     this->rxPayload.payloadPos = 10; // Always for first frame
