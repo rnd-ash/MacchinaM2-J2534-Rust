@@ -18,8 +18,10 @@ namespace CustomCan {
      * to block all traffic
      * 
      * @param baud Bus speed to initialize the CAN0 controller with
+     * 
+     * @returns Boolean indicating if CAN was setup successfully
      */
-    void enableCanBus(int baud);
+    bool enableCanBus(int baud);
 
     /**
      * Deletes one of the mailboxes Rx ring buffer

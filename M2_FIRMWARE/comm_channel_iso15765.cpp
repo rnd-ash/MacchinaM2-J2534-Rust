@@ -2,19 +2,26 @@
 
 bool ISO15765Channel::setup(int id, int protocol, int baud, int flags) {
     // Here we go, setup a ISO15765 channel!
-    if (Can0.init(baud) == 0) {
+    if (!CustomCan::enableCanBus(baud)) {
          PCCOMM::respond_err(MSG_OPEN_CHANNEL, ERR_FAILED, "CAN Controller setup failed!");
          return false;
     }
-    if (flags & CAN_29BIT_ID > 0) { // extended addressing, 
+    if (flags & CAN_29BIT_ID) { // 29bit CAN ID, 
         PCCOMM::log_message("Extended CAN detected!");
-        this->isExtended = true;
+        this->use29bitCid = true;
     } else {
         PCCOMM::log_message("Standard CAN detected!");
-        this->isExtended = false;
+        this->use29bitCid = false;
     }
 
-    CustomCan::enableCanBus(baud);
+    if (flags & ISO15765_ADDR_TYPE) { // Extended ISO-TP Addressing
+        PCCOMM::log_message("Extended ISO-TP Addressing detected!");
+        this->extAddressingChannel = true;
+    } else {
+        PCCOMM::log_message("Normal ISO-TP Addressing detected!");
+        this->extAddressingChannel = false;
+    }
+
     digitalWrite(DS3, LOW); // Enable the light
     this->channel_id = id;
 
@@ -59,7 +66,7 @@ void ISO15765Channel::addFilter(int type, int filter_id, char* mask, char* patte
     this->mask_ids[filter_id] = mask_u32;
     this->pattern_ids[filter_id] = pattern_u32;
     this->flowcontrol_ids[filter_id] = flowcontrol_u32;
-    CustomCan::enableCanFilter(filter_id, pattern_u32, mask_u32, isExtended);
+    CustomCan::enableCanFilter(filter_id, pattern_u32, mask_u32, use29bitCid);
     PCCOMM::respond_ok(MSG_SET_CHAN_FILT, nullptr, 0);
 }
 
@@ -89,7 +96,14 @@ void ISO15765Channel::update() {
         if (used_mailboxes[i] == true) {
             if (CustomCan::receiveFrame(i, &f)) {
                 debug_read_frame(f);
-                switch(f.data.bytes[0] & 0xF0) {
+                // which byte do we listen to based on addressing method
+                uint8_t cmp = 0;
+                if (this->extAddressingChannel) {
+                    cmp = 1;
+                }
+
+
+                switch(f.data.bytes[cmp] & 0xF0) {
                 case 0x00:
                     rx_single_frame(&f);
                     break;
@@ -104,7 +118,7 @@ void ISO15765Channel::update() {
                     break;
                 default:
                     char buf[70];
-                    sprintf(buf, "CAN ID %04X invalid ISO-TP PCI: %02X. Discarding frame", f.id, f.data.bytes[0]);
+                    sprintf(buf, "CAN ID %04X invalid ISO-TP PCI: %02X. Discarding frame", f.id, f.data.bytes[cmp]);
                     PCCOMM::log_message(buf);
                     break;
                 }
@@ -163,16 +177,28 @@ void ISO15765Channel::tx_multi_frame() {
 
 
 void ISO15765Channel::rx_single_frame(CAN_FRAME *read) {
-    uint8_t size = read->data.bytes[0] + 4;
-    char* buf = new char[size];
-    // Copy CAN ID
-    buf[0] = read->id >> 24;
-    buf[1] = read->id >> 16;
-    buf[2] = read->id >> 8;
-    buf[3] = read->id >> 0;
-    memcpy(&buf[4], &read->data.bytes[1], read->data.bytes[0]);
-    PCCOMM::send_rx_data(this->channel_id, 0x0000, buf, size);
-    delete[] buf;
+    if (this->extAddressingChannel) { // Extended addressing
+        uint8_t size = read->data.bytes[1] + 4;
+        char* buf = new char[size];
+        // Copy CAN ID
+        buf[0] = read->id >> 16;
+        buf[1] = read->id >> 8;
+        buf[2] = read->id >> 0;
+        buf[3] = read->data.bytes[0] >> 0;
+        memcpy(&buf[4], &read->data.bytes[2], read->data.bytes[1]);
+        PCCOMM::send_rx_data(this->channel_id, 0x0000, buf, size);
+        delete[] buf;
+    } else { // Normal addressing
+        uint8_t size = read->data.bytes[0] + 4;
+        char* buf = new char[size];
+        // Copy CAN ID
+        buf[0] = read->id >> 24;
+        buf[1] = read->id >> 16;
+        buf[2] = read->id >> 8;
+        buf[3] = read->id >> 0;
+        memcpy(&buf[4], &read->data.bytes[1], read->data.bytes[0]);
+        PCCOMM::send_rx_data(this->channel_id, 0x0000, buf, size);
+    }
 }
 
 
@@ -211,7 +237,6 @@ void ISO15765Channel::rx_multi_frame(CAN_FRAME *read, int id) {
 void ISO15765Channel::send_ff_indication(CAN_FRAME *read, int id) {
     uint32_t request_id = read->id;
     // Send the flow control message back to the ECU
-    // TODO OBIDE BY IOCTL BS AND MIN_ST
     f.id = this->flowcontrol_ids[id];
     if (f.id == 0) {
         char buf[45] = {0x00};
@@ -242,9 +267,9 @@ void ISO15765Channel::send_ff_indication(CAN_FRAME *read, int id) {
 
     // Now create the flow control frame to send back to the application
     f.length = 8;
-    f.data.bytes[0] = 0x30;
-    f.data.bytes[1] = 8; // BLOCK SIZE
-    f.data.bytes[2] = 0x02; // ST_MIN
+    f.data.bytes[0] = 0x30; // Flow control (Clear to send!)
+    f.data.bytes[1] = this->block_size; // BLOCK SIZE
+    f.data.bytes[2] = this->sep_time; // ST_MIN
     debug_send_frame(f);
     // Send the first frame indication back to the user application
     // 4 additional bytes should be sent which represents the Can ID of the message
@@ -260,8 +285,12 @@ void ISO15765Channel::send_ff_indication(CAN_FRAME *read, int id) {
 }
 
 void ISO15765Channel::sendMsg(uint32_t tx_flags, char* data, int data_size, bool respond) {
+    if (tx_flags & ISO15765_ADDR_TYPE > 0) {
+        PCCOMM::respond_err(MSG_TX_CHAN_DATA, ERR_FAILED, "Extended ISO-TP Tx not implemented");
+        return;
+    }
     if (data_size <= 11) { // one frame!
-        f.extended = this->isExtended;
+        f.extended = this->use29bitCid;
         f.priority = 4; // Balanced priority
         f.length = 8;
         f.id = data[0] << 24 | data[1] << 16 | data[2] << 8 | data[3];
@@ -292,7 +321,7 @@ void ISO15765Channel::sendMsg(uint32_t tx_flags, char* data, int data_size, bool
             return;
         }
         // TODO Multi frame data write
-        f.extended = this->isExtended;
+        f.extended = this->use29bitCid;
         f.priority = 4; // Balanced priority
         f.length = 8;
         f.id = data[0] << 24 | data[1] << 16 | data[2] << 8 | data[3];

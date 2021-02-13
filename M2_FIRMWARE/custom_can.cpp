@@ -42,9 +42,11 @@ void CustomCan::__create_check_rx_ring(int i) {
     }
 }
 
-void CustomCan::enableCanBus(int baud) {
+bool CustomCan::enableCanBus(int baud) {
     // Begin bus
-    Can0.init(baud);
+    if (Can0.init(baud) == 0) {
+        return false;
+    }
     
     // Block all traffic
     for (int i = 0; i < 7; i++) {
@@ -53,6 +55,7 @@ void CustomCan::enableCanBus(int baud) {
         __delete_check_rx_ring(i);
     }
     // No software queues created in this method
+    return true;
 }
 
 void CustomCan::disableCanBus() {

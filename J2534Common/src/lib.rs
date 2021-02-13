@@ -295,6 +295,7 @@ pub enum ConnectFlags {
     CAN_29BIT_ID = 0x00000100,
     ISO9141_NO_CHECKSUM = 0x00000200,
     CAN_ID_BOTH = 0x00000800,
+    ISO15765_ADDR_TYPE = 0x00000080,
     ISO9141_K_LINE_ONLY = 0x00001000,
 }
 impl Loggable for ConnectFlags {
@@ -303,6 +304,7 @@ impl Loggable for ConnectFlags {
             ConnectFlags::CAN_29BIT_ID => "CAN ID 29Bit",
             ConnectFlags::ISO9141_NO_CHECKSUM => "ISO9141 no checksum",
             ConnectFlags::CAN_ID_BOTH => "unknown",
+            ConnectFlags::ISO15765_ADDR_TYPE => "ISO-TP Extended addressing",
             ConnectFlags::ISO9141_K_LINE_ONLY => "ISO9141 only use K-Line"
         }
     }

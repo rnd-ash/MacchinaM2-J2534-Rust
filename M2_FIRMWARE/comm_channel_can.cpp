@@ -2,9 +2,11 @@
 
 bool CanChannel::setup(int id, int protocol, int baud, int flags) {
     // Here we go, setup a CAN channel!
-    CustomCan::enableCanBus(baud);
-    //Can0.reset_all_mailbox();
-    if (flags & CAN_29BIT_ID > 0) { // extended addressing, 
+    if (!CustomCan::enableCanBus(baud)) {
+         PCCOMM::respond_err(MSG_OPEN_CHANNEL, ERR_FAILED, "CAN Controller setup failed!");
+         return false;
+    }
+    if (flags & CAN_29BIT_ID) { // extended addressing, 
         PCCOMM::log_message("CAN Extended enabled");
         this->isExtended = true;
     } else {

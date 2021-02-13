@@ -77,7 +77,9 @@ class ISO15765Channel : public Channel {
         uint32_t flowcontrol_ids[7] = {0x00};
         uint32_t mask_ids[7] = {0x00};
         uint32_t pattern_ids[7] = {0x00};
-        bool isExtended;
+        bool use29bitCid = false;
+        bool extAddressingChannel = false;
+        bool extAddressingPayload = false;
         bool isSending = false;
         bool isReceiving = false;
         isoPayload rxPayload = {0x00}; // For receiving

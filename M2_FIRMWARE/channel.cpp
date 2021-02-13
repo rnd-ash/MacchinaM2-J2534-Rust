@@ -3,6 +3,14 @@
 Channel* canChannel = nullptr; // Channel for physical canbus link
 Channel* klineChannel = nullptr; // Channel for physical kline line
 
+int little_endian_decode(uint8_t* src) {
+    return src[3] << 24 |
+        src[2] << 16 |
+        src[1] << 8 |
+        src[0];
+}
+
+
 void setup_channel(COMM_MSG* msg) {
     if (msg->msg_type != MSG_OPEN_CHANNEL) {
         PCCOMM::respond_err(MSG_OPEN_CHANNEL, ERR_FAILED, "This is NOT a open channel msg!");
@@ -12,14 +20,10 @@ void setup_channel(COMM_MSG* msg) {
         sprintf(buf, "Payload size for OpenChannel is incorrect. Want 16, got %d", msg->arg_size);
         PCCOMM::respond_err(MSG_OPEN_CHANNEL, ERR_FAILED, buf);
     }
-    unsigned int id;
-    unsigned int protocol;
-    unsigned int baud;
-    unsigned int flags;
-    memcpy(&id, &msg->args[0], 4);
-    memcpy(&protocol, &msg->args[4], 4);
-    memcpy(&baud, &msg->args[8], 4);
-    memcpy(&flags, &msg->args[12], 4);
+    unsigned int id = little_endian_decode(&msg->args[0]);
+    unsigned int protocol = little_endian_decode(&msg->args[4]);
+    unsigned int baud = little_endian_decode(&msg->args[8]);
+    unsigned int flags = little_endian_decode(&msg->args[12]);
     switch (id)
     {
         case CAN_CHANNEL_ID:
@@ -136,18 +140,12 @@ void del_channel_filter(COMM_MSG* msg) {
 }
 
 void add_channel_filter(COMM_MSG* msg) {
-    unsigned int channel_id;
-    unsigned int filter_id;
-    unsigned int filter_type;
-    unsigned int mask_size;
-    unsigned int pattern_size;
-    unsigned int flowcontrol_size;
-    memcpy(&channel_id, &msg->args[0], 4);
-    memcpy(&filter_id, &msg->args[4], 4);
-    memcpy(&filter_type, &msg->args[8], 4);
-    memcpy(&mask_size, &msg->args[12], 4);
-    memcpy(&pattern_size, &msg->args[16], 4);
-    memcpy(&flowcontrol_size, &msg->args[20], 4);
+    unsigned int channel_id = little_endian_decode(&msg->args[0]);
+    unsigned int filter_id = little_endian_decode(&msg->args[4]);
+    unsigned int filter_type = little_endian_decode(&msg->args[8]);
+    unsigned int mask_size = little_endian_decode(&msg->args[12]);
+    unsigned int pattern_size = little_endian_decode(&msg->args[16]);
+    unsigned int flowcontrol_size = little_endian_decode(&msg->args[20]);
     if (filter_type == FLOW_CONTROL_FILTER && flowcontrol_size == 0) {
         PCCOMM::respond_err(MSG_SET_CHAN_FILT, ERR_NULL_PARAMETER, "WTF. ISO15765 FC filter is null? Driver should have checked this!");
         return;
