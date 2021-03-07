@@ -1,4 +1,4 @@
-use std::{sync::RwLock};
+use std::{path::PathBuf, sync::RwLock};
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
@@ -7,14 +7,19 @@ use lazy_static::*;
 use std::sync::mpsc::{channel, Sender, Receiver};
 
 #[cfg(windows)]
-const LOG_PATH: &str = "C:\\Program Files (x86)\\macchina\\passthru\\macchina_log.txt";
+lazy_static!{
+    static ref LOG_PATH: PathBuf = PathBuf::from(r"C:\Program Files (x86)\macchina\passthru\macchina_log.txt");
+}
 
 #[cfg(unix)]
-const LOG_PATH: &str = "macchina_log.txt";
+lazy_static! {
+    static ref LOG_PATH: PathBuf = PathBuf::from(r"macchina_log.txt");
+}
 
 lazy_static! {
     static ref LOGGER : RwLock<Logger> = RwLock::new(Logger::new());
 }
+
 
 /// Logs an info message
 pub fn log_debug(msg: String) {
@@ -82,8 +87,10 @@ impl Logger {
     #[cfg(not(test))]
     // Not test mode - Write to file
     fn write_to_file(txt: String) {
-        if !Path::exists(Path::new(LOG_PATH)) {
-            if let Err(x) = File::create(LOG_PATH) {
+        let p: &std::path::Path = LOG_PATH.as_path();
+
+        if !p.exists() {
+            if let Err(x) = File::create(p) {
                 eprintln!("LOG FILE CREATE ERROR! [{}]", x);
             }
         }
@@ -92,7 +99,7 @@ impl Logger {
             .write(true)
             .append(true)
             .create(false)
-            .open(LOG_PATH)
+            .open(p)
             .unwrap();
 
         if let Err(e) = writeln!(ops, "{}", txt) {

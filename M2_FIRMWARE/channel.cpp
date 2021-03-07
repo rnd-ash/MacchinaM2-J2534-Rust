@@ -37,7 +37,6 @@ void setup_channel(COMM_MSG* msg) {
             PCCOMM::respond_err(MSG_OPEN_CHANNEL, ERR_FAILED, "Protocol unsupported");
             break;
     }
-
 }
 
 void create_can_channel(int id, int protocol, int baud, int flags) {
