@@ -105,7 +105,10 @@ impl MacchinaM2 {
         let mut port = match serialport::new(port, 500000).open() {
             Ok(mut p) => {
                 p.set_flow_control(FlowControl::Hardware).expect("Fatal. Could not setup hardware flow control");
+                #[cfg(unux)]
                 p.set_timeout(std::time::Duration::from_millis(0)).expect("Fatal. Could not set Serial timeout");
+                #[cfg(windows)]
+                p.set_timeout(std::time::Duration::from_millis(10)).expect("Fatal. Could not set Serial timeout");
                 p.clear(ClearBuffer::All).expect("Fatal. Could not clear Serial buffers");
                 p
             },
