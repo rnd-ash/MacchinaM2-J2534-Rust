@@ -1,6 +1,8 @@
 # Cross platform J2534-2 implimentation for Macchina M2 Under the dash
 
-This is experimental code, since this appears to be the first J2534 driver that supports Linux/OSX 
+~~This is experimental code, since this appears to be the first J2534 driver that supports Linux/OSX ~~
+
+THIS REPOSITORY IS NOW ARCHIVED, PLEASE SEE [MACCHINA-J2534] FOR AN IMPROVED DRIVER THAT WORKS ON BOTH THE MACCHINA A0 AND M2!
 
 # Repo overview
 
